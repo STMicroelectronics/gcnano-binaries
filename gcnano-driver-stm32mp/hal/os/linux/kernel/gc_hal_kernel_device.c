@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -175,6 +175,7 @@ gc_clients_show(void *m, void *data)
     gckKERNEL kernel = _GetValidKernel(device);
 
     gcsDATABASE_PTR database;
+    gceSTATUS status;
     gctINT i, pid;
     char name[24];
     int len = 0;
@@ -191,7 +192,7 @@ gc_clients_show(void *m, void *data)
     len += fs_printf(ptr + len, "------------------------\n");
 
     /* Acquire the database mutex. */
-    gcmkVERIFY_OK(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
 
     /* Walk the databases. */
     for (i = 0; i < gcmCOUNTOF(kernel->db->db); ++i) {
@@ -211,6 +212,11 @@ gc_clients_show(void *m, void *data)
 
     /* Success. */
     return len;
+
+OnError:
+    if (status == gcvSTATUS_INVALID_ARGUMENT)
+        return -EINVAL;
+    return status;
 }
 
 int
@@ -249,7 +255,7 @@ gc_meminfo_show(void *m, void *data)
         status = gckKERNEL_GetVideoMemoryPool(kernel, gcvPOOL_SYSTEM, &memory);
 
         if (gcmIS_SUCCESS(status)) {
-            gcmkVERIFY_OK(gckOS_AcquireMutex(memory->os, memory->mutex, gcvINFINITE));
+            gcmkONERROR(gckOS_AcquireMutex(memory->os, memory->mutex, gcvINFINITE));
 
             free = memory->freeBytes;
             minFree = memory->minFreeBytes;
@@ -263,7 +269,7 @@ gc_meminfo_show(void *m, void *data)
         status = gckKERNEL_GetVideoMemoryPool(kernel, gcvPOOL_SYSTEM_32BIT_VA, &memory);
 
         if (!i && gcmIS_SUCCESS(status)) {
-            gcmkVERIFY_OK(gckOS_AcquireMutex(memory->os, memory->mutex, gcvINFINITE));
+            gcmkONERROR(gckOS_AcquireMutex(memory->os, memory->mutex, gcvINFINITE));
 
             free += memory->freeBytes;
             minFree += memory->minFreeBytes;
@@ -285,7 +291,7 @@ gc_meminfo_show(void *m, void *data)
     kernel->device->memIndex = 0;
 
     /* Acquire the database mutex. */
-    gcmkVERIFY_OK(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
 
     /* Walk the databases. */
     for (i = 0; i < gcmCOUNTOF(kernel->db->db); ++i) {
@@ -312,6 +318,11 @@ gc_meminfo_show(void *m, void *data)
     len += fs_printf(ptr + len, "    MaxUsed : %10llu B\n", virtualCounter.bytes);
 
     return len;
+
+OnError:
+    if (status == gcvSTATUS_INVALID_ARGUMENT)
+        return -EINVAL;
+    return status;
 }
 
 gceSTATUS
@@ -408,6 +419,9 @@ gc_mmuinfo_show(void)
                 break;
             }
 
+            /* Convert GPU physical to CPU physical. */
+            gckOS_GPUPhysicalToCPUPhysical(kernel->os, stlbPhysical, &stlbPhysical);
+
             gcmkONERROR(gckOS_MapPhysical(kernel->os, stlbPhysical, stlbSize, (gctPOINTER *)&stlbLogical));
 
             /* print stlb */
@@ -422,6 +436,8 @@ gc_mmuinfo_show(void)
                     gcmkPRINT("        stlb entry[%04d]:      Page Physical = 0x%010lX  mask = 0x%01X\n", sStart, pagePhysical, maskStlb);
                 }
             }
+
+            gcmkONERROR(gckOS_UnmapPhysical(kernel->os, stlbLogical, stlbSize));
         } else {
             gcmkPRINT("      STLB is empty\n");
         }
@@ -449,7 +465,7 @@ gc_load_show(void *m, void *data)
     gctUINT32 hi_total_idle_cycle_count[gcvCORE_3D_MAX + 1] = { 0 };
 
     static gctBOOL profilerEnable[gcvCORE_3D_MAX + 1] = { gcvFALSE };
-    gctBOOL powerManagement[gcvCORE_3D_MAX];
+    gctBOOL powerManagement[gcvCORE_3D_MAX + 1] = { gcvFALSE };
 
 #ifdef CONFIG_DEBUG_FS
     void *ptr = m;
@@ -536,7 +552,12 @@ gc_load_show(void *m, void *data)
 
                 gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, state));
 
-                load[i] = (hi_total_cycle_count[i] - hi_total_idle_cycle_count[i]) * 100 / hi_total_cycle_count[i];
+                if (hi_total_cycle_count[i] == 0) {
+                    len += fs_printf(ptr, "The current HW doesn't support use AHB register to read cycle counter.\n");
+                    goto OnError;
+                }
+                else
+                    load[i] = (hi_total_cycle_count[i] - hi_total_idle_cycle_count[i]) * 100 / hi_total_cycle_count[i];
 
                 len += fs_printf(ptr, "core      : %d\n", i);
                 len += fs_printf(ptr + len, "load      : %d%%\n", load[i]);
@@ -765,6 +786,7 @@ gc_db_old_show(void *m, void *data, gctBOOL all)
     gctINT i;
 
     static gctUINT64 idleTime;
+    gceSTATUS status;
     gckGALDEVICE device = galDevice;
     gckKERNEL kernel = _GetValidKernel(device);
     int len = 0;
@@ -778,7 +800,7 @@ gc_db_old_show(void *m, void *data, gctBOOL all)
         return -ENXIO;
 
     /* Acquire the database mutex. */
-    gcmkVERIFY_OK(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
 
     if (kernel->db->idleTime) {
         /* Record idle time if DB upated. */
@@ -803,6 +825,11 @@ gc_db_old_show(void *m, void *data, gctBOOL all)
     gcmkVERIFY_OK(gckOS_ReleaseMutex(kernel->os, kernel->db->dbMutex));
 
     return len;
+
+OnError:
+    if (status == gcvSTATUS_INVALID_ARGUMENT)
+        return -EINVAL;
+    return status;
 }
 
 static int
@@ -1099,7 +1126,7 @@ gc_vidmem_old_show(void *m, void *unused, gctBOOL all)
 
     if (dumpProcess == 0) {
         /* Acquire the database mutex. */
-        gcmkVERIFY_OK(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
+        gcmkONERROR(gckOS_AcquireMutex(kernel->os, kernel->db->dbMutex, gcvINFINITE));
 
         for (i = 0; i < gcmCOUNTOF(kernel->db->db); i++) {
             for (database = kernel->db->db[i];
@@ -1132,6 +1159,11 @@ gc_vidmem_old_show(void *m, void *unused, gctBOOL all)
     }
 
     return len;
+
+OnError:
+    if (status == gcvSTATUS_INVALID_ARGUMENT)
+        return -EINVAL;
+    return status;
 }
 
 static int
@@ -1148,8 +1180,8 @@ gc_reserved_mem_usage_show(void *m)
     gckVIDMEM vidMem;
     int usage;
     int i = 0;
-    unsigned int t_freeBytes = 0;
-    unsigned int t_bytes = 0;
+    size_t t_freeBytes = 0;
+    size_t t_bytes = 0;
     int t_usage = 0;
 #ifdef CONFIG_DEBUG_FS
     void *ptr = m;
@@ -1165,7 +1197,7 @@ gc_reserved_mem_usage_show(void *m)
         vidMem = gal_device->internalVidMem;
         usage = (vidMem->bytes - vidMem->freeBytes) * 100 / vidMem->bytes;
         len += fs_printf(ptr + len, "%-25s", "Local Internel Pool:");
-        len += fs_printf(ptr + len, "%16d %16d %16d%%\n", "", vidMem->freeBytes, vidMem->bytes, usage);
+        len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", "", vidMem->freeBytes, vidMem->bytes, usage);
     }
 
     /* LOCAL EXTERNAL POOL */
@@ -1182,7 +1214,7 @@ gc_reserved_mem_usage_show(void *m)
     if (t_bytes > 0) {
         t_usage = (t_bytes - t_freeBytes) * 100 / t_bytes;
         len += fs_printf(ptr + len, "%-25s", "Local External Pool:");
-        len += fs_printf(ptr + len, "%16d %16d %16d%%\n", t_freeBytes, t_bytes, t_usage);
+        len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", t_freeBytes, t_bytes, t_usage);
     }
 
     for (i = 0; i < gcdDEVICE_COUNT; i++) {
@@ -1190,7 +1222,7 @@ gc_reserved_mem_usage_show(void *m)
             vidMem = gal_device->externalVidMem[i];
             usage = (vidMem->bytes - vidMem->freeBytes) * 100 / vidMem->bytes;
             len += fs_printf(ptr + len, "%4s%s %d %s:%9s", "", "Card", i, "Pool", "");
-            len += fs_printf(ptr + len, "%16d %16d %16d%%\n", vidMem->freeBytes, vidMem->bytes, usage);
+            len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", vidMem->freeBytes, vidMem->bytes, usage);
         } else {
             break;
         }
@@ -1214,7 +1246,7 @@ gc_reserved_mem_usage_show(void *m)
     if (t_bytes > 0) {
         t_usage = (t_bytes - t_freeBytes) * 100 / t_bytes;
         len += fs_printf(ptr + len, "%-25s", "Local Exclusive Pool:");
-        len += fs_printf(ptr + len, "%16d %16d %16d%%\n", t_freeBytes, t_bytes, t_usage);
+        len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", t_freeBytes, t_bytes, t_usage);
     }
 
     for (i = 0; i < gcdDEVICE_COUNT; i++) {
@@ -1222,7 +1254,7 @@ gc_reserved_mem_usage_show(void *m)
             vidMem = gal_device->exclusiveVidMem[i];
             usage = (vidMem->bytes - vidMem->freeBytes) * 100 / vidMem->bytes;
             len += fs_printf(ptr + len, "%4s%s %d %s:%9s", "", "Card", i, "Pool", "");
-            len += fs_printf(ptr + len, "%16d %16d %16d%%\n", vidMem->freeBytes, vidMem->bytes, usage);
+            len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", vidMem->freeBytes, vidMem->bytes, usage);
         } else {
             break;
         }
@@ -1246,15 +1278,15 @@ gc_reserved_mem_usage_show(void *m)
     if (t_bytes > 0) {
         t_usage = (t_bytes - t_freeBytes) * 100 / t_bytes;
         len += fs_printf(ptr + len, "%-25s", "System Reserved Pool:");
-        len += fs_printf(ptr + len, "%16d %16d %16d%%\n", t_freeBytes, t_bytes, t_usage);
+        len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", t_freeBytes, t_bytes, t_usage);
     }
 
     for (i = 0; i < gcdSYSTEM_RESERVE_COUNT; i++) {
         if (gal_device->contiguousVidMems[i]) {
             vidMem = gal_device->contiguousVidMems[i];
-            usage = (vidMem->bytes - vidMem->freeBytes) / vidMem->bytes;
+            usage = (vidMem->bytes - vidMem->freeBytes) * 100 / vidMem->bytes;
             len += fs_printf(ptr + len, "%4s%s %d:%14s", "", "Pool", i, "");
-            len += fs_printf(ptr + len, "%16d %16d %16d%%\n", vidMem->freeBytes, vidMem->bytes, usage);
+            len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", vidMem->freeBytes, vidMem->bytes, usage);
         } else {
             break;
         }
@@ -1278,7 +1310,7 @@ gc_reserved_mem_usage_show(void *m)
     if (t_bytes > 0) {
         t_usage = (t_bytes - t_freeBytes) * 100 / t_bytes;
         len += fs_printf(ptr + len, "%-25s", "SRAM Pool:");
-        len += fs_printf(ptr + len, "%16d %16d %16d%%\n", t_freeBytes, t_bytes, t_usage);
+        len += fs_printf(ptr + len, "%16lld %16lld %16d%%\n", t_freeBytes, t_bytes, t_usage);
     }
 
     for (i = 0; i < gcvSRAM_EXT_COUNT; i++) {
@@ -1286,7 +1318,7 @@ gc_reserved_mem_usage_show(void *m)
             vidMem = gal_device->extSRAMVidMems[i];
             usage = (vidMem->bytes - vidMem->freeBytes) * 100 / vidMem->bytes;
             len += fs_printf(ptr + len, "SRAM Pool %d: ", i);
-            len += fs_printf(ptr + len, "%-16s %16d %16d %16d%%\n", "", vidMem->freeBytes, vidMem->bytes, usage);
+            len += fs_printf(ptr + len, "%-16s %16lld %16lld %16d%%\n", "", vidMem->freeBytes, vidMem->bytes, usage);
         } else {
             break;
         }
@@ -1389,10 +1421,10 @@ gc_clk_show(void *m, void *data)
             }
 
             if (hardware->mcClk)
-                len += fs_printf(ptr + len, "gpu%d mc clock: %d HZ.\n", i, hardware->mcClk);
+                len += fs_printf(ptr + len, "gpu%d mc clock: %llu HZ.\n", i, hardware->mcClk);
 
             if (hardware->shClk)
-                len += fs_printf(ptr + len, "gpu%d sh clock: %d HZ.\n", i, hardware->shClk);
+                len += fs_printf(ptr + len, "gpu%d sh clock: %llu HZ.\n", i, hardware->shClk);
         }
     }
 
@@ -1441,7 +1473,7 @@ set_clk(const char *buf)
             break;
     }
 
-    if (4 == sscanf(data, "%d %d %d %d", &devIndex, &dumpCore, &clkScale[0], &clkScale[1])) {
+    if (4 == sscanf(data, "%u %u %d %d", &devIndex, &dumpCore, &clkScale[0], &clkScale[1])) {
         pr_warn("Change device:%d core:%d MC scale:%d SH scale:%d\n",
                 devIndex, dumpCore, clkScale[0], clkScale[1]);
     } else {
@@ -2687,9 +2719,15 @@ gckGALDEVICE_Construct(gcsPLATFORM *Platform,
         }
     }
 
+#if gcdENABLE_TRUST_APPLICATION
     if (gal_device->devices[0]->irqLines[gcvCORE_MAJOR] != -1 ||
         gcmBITTEST(isrPolling, gcvCORE_MAJOR)!= 0) {
         gcmkONERROR(gctaOS_ConstructOS(gal_device->os, &gal_device->taos));
+    }
+#endif
+    for (i = 0; i < gcdDEVICE_COUNT; i++) {
+        /* set -1 as default value, to avoid the misc device random minor is 0 */
+        gal_device->devIDs[i] = -1;
     }
 
     gal_device->platform->dev = gal_device->devices[0];
@@ -2780,6 +2818,9 @@ gckGALDEVICE_Construct(gcsPLATFORM *Platform,
     for (devIndex = 0; devIndex < gal_device->args.devCount; devIndex++) {
         device = gal_device->devices[devIndex];
 
+        if (devIndex)
+            device->database = gal_device->devices[0]->database;
+
         /* Query device memory configuration. */
         device->externalBase = gal_device->externalBase[device->vidMemIndex];
         device->externalSize = gal_device->externalSize[device->vidMemIndex];
@@ -2829,10 +2870,12 @@ gckGALDEVICE_Construct(gcsPLATFORM *Platform,
                 if (!kernel)
                     kernel = device->kernels[i];
 
+#if gcdENABLE_TRUST_APPLICATION
                 if (device->kernels[i]->hardware->options.secureMode == gcvSECURE_IN_TA &&
                     devIndex == 0) {
                     gcmkONERROR(gcTA_Construct(gal_device->taos, (gceCORE)i, &globalTA[i]));
                 }
+#endif
 
                 gcmkONERROR(gckHARDWARE_SetFastClear(device->kernels[i]->hardware,
                                                      Args->fastClear,
@@ -2972,12 +3015,15 @@ gckGALDEVICE_Destroy(gckGALDEVICE gal_device)
 {
     gctINT i, j = 0;
     gckKERNEL kernel = gcvNULL;
-    gctUINT32 devIndex;
+    gctINT32 devIndex;
     gckDEVICE device;
 
     gcmkHEADER_ARG("gal_device=%p", gal_device);
 
     if (gal_device) {
+        if (!gal_device->devices[0])
+            goto free_gal_device;
+
         kernel = gal_device->devices[0]->kernels[gcvCORE_MAJOR];
         if (!kernel)
             kernel = gal_device->devices[0]->kernels[gcvCORE_2D];
@@ -3019,7 +3065,7 @@ gckGALDEVICE_Destroy(gckGALDEVICE gal_device)
 #endif
         _DebugfsCleanup(gal_device);
 
-        for (devIndex = 0; devIndex < gal_device->args.devCount; devIndex++) {
+        for (devIndex = gal_device->args.devCount - 1; devIndex >= 0; devIndex--) {
             device = gal_device->devices[devIndex];
 
             if (!device)
@@ -3028,11 +3074,14 @@ gckGALDEVICE_Destroy(gckGALDEVICE gal_device)
             for (i = 0; i < gcvCORE_COUNT; i++) {
                 if (device->kernels[i]) {
                     kernel = device->kernels[i];
-                    if (kernel->hardware->options.secureMode == gcvSECURE_IN_TA &&
+#if gcdENABLE_TRUST_APPLICATION
+                    if (kernel->core != gcvCORE_VG &&
+                        kernel->hardware->options.secureMode == gcvSECURE_IN_TA &&
                         globalTA[i] && !devIndex) {
                         gcTA_Destroy(globalTA[i]);
                         globalTA[i] = gcvNULL;
                     }
+#endif
 
                     if (gal_device->gotoShutdown)
                         kernel->dbCreated = gcvFALSE;
@@ -3168,10 +3217,12 @@ gckGALDEVICE_Destroy(gckGALDEVICE gal_device)
         }
 #endif
 
+#if gcdENABLE_TRUST_APPLICATION
         if (gal_device->taos) {
             gcmkVERIFY_OK(gctaOS_DestroyOS(gal_device->taos));
             gal_device->taos = gcvNULL;
         }
+#endif
 
         /* Destroy the gckOS object. */
         if (gal_device->os != gcvNULL) {
@@ -3185,48 +3236,54 @@ gckGALDEVICE_Destroy(gckGALDEVICE gal_device)
 
     gcmkFOOTER_NO();
     return gcvSTATUS_OK;
+
+free_gal_device:
+    kfree(gal_device);
+
+    gcmkFOOTER_NO();
+    return gcvSTATUS_OK;
 }
 
 #if gcdENABLE_DEVFREQ
-#include <linux/devfreq.h>
-unsigned int cur_freq = 64;
+#include <../drivers/devfreq/governor.h>
+static gctUINT32 cur_freq = 64;
 static int gc_df_target(struct device *dev, unsigned long *freq, u32 flags)
 {
-    int i = 0;
+    gctUINT32 i = 0;
     gctUINT32 _freq = 1;
     gckHARDWARE hardware;
-    gckGALDEVICE device = galDevice;
+    gckDEVICE device = galDevice->devices[0];
 
-    if (*freq > 64)
-        _freq = 64;
-    if (*freq < 1)
-        _freq = 1;
+    _freq = *freq;
 
     for (i = 0; i < gcvCORE_3D_MAX; i++) {
         if (device->kernels[i]) {
             hardware = device->kernels[i]->hardware;
-            gckHARDWARE_SetClock(hardware, i, _freq, _freq);
+            gckHARDWARE_SetClock(hardware, _freq, _freq);
         }
     }
 
-    *freq = _freq;
     cur_freq = _freq;
 
     return 0;
 }
 
-static int gc_df_status(struct device *dev, struct devfreq_dev_status *stat)
+static gceSTATUS gc_df_status(struct device *dev, struct devfreq_dev_status *stat)
 {
-    gckGALDEVICE device = galDevice;
-    gckKERNEL kernel = _GetValidKernel(device);
+    gckKERNEL kernel = _GetValidKernel(galDevice);
     gctUINT32 load = 0;
+    gceSTATUS status = gcvSTATUS_OK;
 
-    gckHARDWARE_QueryCoreLoad(kernel->hardware, 100, &load);
+    gcmkHEADER();
+
+    gcmkONERROR(gckHARDWARE_QueryCoreLoad(kernel->hardware, 1, &load));
     stat->current_frequency = (unsigned long)cur_freq;
     stat->busy_time = (unsigned long)load;
     stat->total_time = (unsigned long)100;
 
-    return 0;
+OnError:
+    gcmkFOOTER_NO();
+    return status;
 }
 
 static int gc_df_get_cur_freq(struct device *dev, unsigned long *freq)
@@ -3235,34 +3292,155 @@ static int gc_df_get_cur_freq(struct device *dev, unsigned long *freq)
     return 0;
 }
 
-struct devfreq_simple_ondemand_data galcore_gov_data;
+#define POLLING_MS        500
+#define UP_THRESHOLD       90
+#define DOWN_DIFFERENCTIAL 5
+
+static struct devfreq *df;
+
+static struct devfreq_simple_ondemand_data galcore_gov_data;
 
 static struct devfreq_dev_profile gc_df_profile = {
-    .polling_ms = 500,
+    .polling_ms = POLLING_MS,
     .target = gc_df_target,
     .get_dev_status = gc_df_status,
     .get_cur_freq = gc_df_get_cur_freq,
 };
 
+static gceSTATUS gc_df_governor_target(struct devfreq *df, unsigned long *freq)
+{
+    struct devfreq_dev_status *stat;
+    unsigned long long a, b;
+
+    gctUINT32 up_threshold = UP_THRESHOLD;
+    gctUINT32 down_differential = DOWN_DIFFERENCTIAL;
+    gceSTATUS status = gcvSTATUS_OK;
+
+    gcmkHEADER();
+
+    gcmkONERROR(devfreq_update_stats(df));
+
+    stat = &df->last_status;
+
+    /* Set MAX if it's busy enough */
+    if (stat->busy_time * 100 >
+        stat->total_time * up_threshold) {
+        *freq = 64;
+        goto OnError;
+    }
+
+    /* Set MAX if we do not know the initial frequency */
+    if (stat->current_frequency == 0) {
+        *freq = 64;
+        goto OnError;
+    }
+
+    /* Keep the current frequency */
+    if (stat->busy_time * 100 >
+        stat->total_time * (up_threshold - down_differential)) {
+        *freq = stat->current_frequency;
+        goto OnError;
+    }
+
+    /* Set the desired frequency based on the load */
+    a = stat->busy_time;
+    a *= stat->current_frequency;
+    b = div_u64(a, stat->total_time);
+    b *= 100;
+    b = div_u64(b, (up_threshold - down_differential / 2));
+
+    if (b <= 1)
+        *freq = 1;
+    else if (b > 1 && b <= 2)
+        *freq = 2;
+    else if (b > 2 && b <= 4)
+        *freq = 4;
+    else if (b > 4 && b <= 8)
+        *freq = 8;
+    else if (b > 8 && b <= 16)
+        *freq = 16;
+    else if (b > 16 && b <= 32)
+        *freq = 32;
+    else if (b > 32 && b <= 48)
+        *freq = 48;
+    else
+        *freq = 64;
+
+OnError:
+    gcmkFOOTER_NO();
+    return status;
+}
+
+static int gc_df_governor_handler(struct devfreq *df, unsigned int event, void *data)
+{
+    switch (event) {
+    case DEVFREQ_GOV_START:
+        devfreq_monitor_start(df);
+        break;
+
+    case DEVFREQ_GOV_STOP:
+        devfreq_monitor_stop(df);
+        break;
+
+    default:
+        break;
+    }
+
+    return 0;
+}
+
+static struct devfreq_governor gc_df_governor = {
+    .name = "galcore_gov",
+    .get_target_freq = gc_df_governor_target,
+    .event_handler = gc_df_governor_handler,
+};
+
 gceSTATUS
-_EnableDevfreq(gckGALDEVICE Device)
+gc_df_init(gckGALDEVICE Device)
 {
     gceSTATUS status = gcvSTATUS_OK;
-    struct devfreq *df;
+    gctINT32 err = 0;
+    struct device *galcore_device = Device->devices[0]->dev;
 
     dev_pm_opp_add(galcore_device, 1, 0);
+    dev_pm_opp_add(galcore_device, 2, 0);
+    dev_pm_opp_add(galcore_device, 4, 0);
+    dev_pm_opp_add(galcore_device, 8, 0);
     dev_pm_opp_add(galcore_device, 16, 0);
     dev_pm_opp_add(galcore_device, 32, 0);
     dev_pm_opp_add(galcore_device, 48, 0);
     dev_pm_opp_add(galcore_device, 64, 0);
 
-    galcore_gov_data.upthreshold = 64;
-    galcore_gov_data.downdifferential = 1;
+    err = devfreq_add_governor(&gc_df_governor);
+
+    if (err) {
+        gcmkPRINT("Failed to add governor: %d", err);
+        return gcvSTATUS_NOT_SUPPORTED;
+    }
 
     df = devm_devfreq_add_device(galcore_device, &gc_df_profile,
-                                 DEVFREQ_GOV_SIMPLE_ONDEMAND, &galcore_gov_data);
+                                 "galcore_gov", &galcore_gov_data);
     if (IS_ERR(df)) {
-        gcmkPRINT("Error: init devfreq %lx\n", (unsigned long)galcore_device);
+        gcmkPRINT("Error: init devfreq %lx", (unsigned long)galcore_device);
+        status = gcvSTATUS_NOT_SUPPORTED;
+    }
+
+    return status;
+}
+
+gceSTATUS
+gc_df_exit(gckGALDEVICE Device)
+{
+    gceSTATUS status = gcvSTATUS_OK;
+    gctINT32 err = 0;
+    struct device *galcore_device = Device->devices[0]->dev;
+
+    devm_devfreq_remove_device(galcore_device, df);
+
+    err = devfreq_remove_governor(&gc_df_governor);
+
+    if (err) {
+        gcmkPRINT("%s %d: failed remove governor %d", __FUNCTION__, __LINE__,  err);
         status = gcvSTATUS_NOT_SUPPORTED;
     }
 
@@ -3320,10 +3498,12 @@ gckGALDEVICE_Start(gckGALDEVICE Device)
         for (i = 0; i < gcvCORE_COUNT; i++) {
             kernel = device->kernels[i];
 
-            if (kernel == gcvNULL)
+            if (!kernel)
                 continue;
 
-            if (kernel->processPageTable && (kernel->command->pool == gcvPOOL_VIRTUAL || !kernel->flatMapping))
+            if (!i && kernel->processPageTable &&
+                (kernel->command->pool == gcvPOOL_VIRTUAL ||
+                 !kernel->flatMapping))
                 gcmkONERROR(gckMMU_ConstructMmuCopy(kernel, &kernel->mmuCopy));
 
             /* Setup the ISR routine. */
@@ -3339,7 +3519,7 @@ gckGALDEVICE_Start(gckGALDEVICE Device)
     }
 
 #if gcdENABLE_DEVFREQ
-    gcmkONERROR(_EnableDevfreq(Device));
+    gcmkONERROR(gc_df_init(Device));
 #endif
 
 OnError:
@@ -3384,7 +3564,7 @@ gckGALDEVICE_Stop(gckGALDEVICE Device)
 
         for (i = 0; i < gcvCORE_COUNT; i++) {
             kernel = device->kernels[i];
-            if (kernel == gcvNULL)
+            if (!kernel)
                 continue;
 
             if (!Device->gotoShutdown) {
@@ -3399,7 +3579,9 @@ gckGALDEVICE_Stop(gckGALDEVICE Device)
                 }
             }
 
-            if (kernel->processPageTable && (kernel->command->pool == gcvPOOL_VIRTUAL || !kernel->flatMapping))
+            if (!i && kernel->processPageTable &&
+                (kernel->command->pool == gcvPOOL_VIRTUAL ||
+                 !kernel->flatMapping))
                 gcmkONERROR(gckMMU_DestroyMmuCopy(kernel->mmuCopy));
 
             /* Stop the ISR routine. */
@@ -3411,6 +3593,10 @@ gckGALDEVICE_Stop(gckGALDEVICE Device)
 #endif
         }
     }
+
+#if gcdENABLE_DEVFREQ
+    gcmkONERROR(gc_df_exit(Device));
+#endif
 
 OnError:
     gcmkFOOTER();

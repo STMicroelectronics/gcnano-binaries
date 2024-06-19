@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -381,7 +381,7 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
     gceSTATUS status;
     gctSIZE_T i = 0;
     gctBOOL contiguous = Flags & gcvALLOC_FLAG_CONTIGUOUS;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
     u32 normal_gfp = __GFP_HIGH | __GFP_ATOMIC | __GFP_NORETRY | gcdNOWARN;
 #else
     u32 normal_gfp = __GFP_HIGH | __GFP_NORETRY | gcdNOWARN;
@@ -605,7 +605,6 @@ _GFPGetSGT(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset, gctSIZE_T B
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
     struct page **pages = gcvNULL;
-    struct page **tmpPages = gcvNULL;
     struct sg_table *sgt = NULL;
     struct gfp_mdl_priv *mdlPriv = (struct gfp_mdl_priv *)Mdl->priv;
 
@@ -619,7 +618,6 @@ _GFPGetSGT(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset, gctSIZE_T B
 
     if (mdlPriv->contiguous) {
         pages = kmalloc_array(numPages, sizeof(struct page *), GFP_KERNEL | gcdNOWARN);
-        tmpPages = kmalloc_array(numPages, sizeof(struct page *), GFP_KERNEL | gcdNOWARN);
         if (!pages)
             gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
 
@@ -639,7 +637,8 @@ _GFPGetSGT(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset, gctSIZE_T B
     *SGT = (gctPOINTER)sgt;
 
 OnError:
-    kfree(tmpPages);
+    if (mdlPriv->contiguous && pages)
+        kfree(pages);
 
     if (gcmIS_ERROR(status) && sgt)
         kfree(sgt);
@@ -728,7 +727,11 @@ _GFPMmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
 
     gcmkHEADER_ARG("Allocator=%p Mdl=%p vma=%p", Allocator, Mdl, vma);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+    vm_flags_set(vma, gcdVM_FLAGS);
+#else
     vma->vm_flags |= gcdVM_FLAGS;
+#endif
 
     if (Cacheable == gcvFALSE) {
         /* Make this mapping non-cached. */
@@ -1026,11 +1029,11 @@ _GFPCache(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset,
 
 static gceSTATUS
 _GFPPhysical(gckALLOCATOR Allocator, PLINUX_MDL Mdl,
-             gctUINT32 Offset, gctPHYS_ADDR_T *Physical)
+             unsigned long Offset, gctPHYS_ADDR_T *Physical)
 {
     struct gfp_mdl_priv *mdlPriv = Mdl->priv;
     gctUINT32 offsetInPage = Offset & ~PAGE_MASK;
-    gctUINT32 index = Offset / PAGE_SIZE;
+    gctUINT32 index = (gctUINT32)(Offset / PAGE_SIZE);
 
     if (mdlPriv->contiguous)
         *Physical = page_to_phys(nth_page(mdlPriv->contiguousPages, index));

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -410,7 +410,11 @@ static uint sharedPageTable = 1;
 module_param(sharedPageTable, uint, 0644);
 MODULE_PARM_DESC(sharedPageTable, "Default 1 means all the cores in one HW device share one MMU page table, 0 means per core page table.");
 
-static uint processPageTable;
+/*
+ * If hardware do not support switch mmu, driver will set back processPageTable to 0.
+ * So if want to enable processPageTable with switch mmu by software, need to modify code in kernel construct.
+ */
+static uint processPageTable = 1;
 module_param(processPageTable, uint, 0644);
 MODULE_PARM_DESC(processPageTable, "Default 0 means the page table is shared by all the cores in one device or per-core. 1 means the page table is per-process.");
 

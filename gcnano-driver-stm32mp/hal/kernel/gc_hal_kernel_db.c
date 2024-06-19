@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -594,11 +594,23 @@ gckKERNEL_CreateProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID)
 
 OnError:
     if (gcmIS_ERROR(status)) {
+        if (database->mmu) {
+            gckMMU_DestroyProcessMMU(database->mmu);
+            database->mmu = gcvNULL;
+        }
         gcmkVERIFY_OK(gckKERNEL_DeinitDatabase(Kernel, database));
 
         if (pointer) {
+            if (database->counterMutex) {
+                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, database->counterMutex));
+                database->counterMutex = gcvNULL;
+            }
             /* Safe free memory to avid dangling pointer */
             gcmkOS_SAFE_FREE(Kernel->os, pointer);
+        } else {
+            /* Return back to free list */
+            database->next = Kernel->db->freeDatabase;
+            Kernel->db->freeDatabase = database;
         }
     }
 
@@ -649,12 +661,13 @@ gckKERNEL_AddProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
                        gctPHYS_ADDR Physical, gctSIZE_T Size)
 {
     gceSTATUS status;
-    gcsDATABASE_PTR database;
+    gcsDATABASE_PTR database = gcvNULL;
     gcsDATABASE_RECORD_PTR record = gcvNULL;
-    gcsDATABASE_COUNTERS  *count;
+    gcsDATABASE_COUNTERS  *count = gcvNULL;
     gctUINT32 vidMemType;
     gcePOOL vidMemPool;
     gceDATABASE_TYPE vidMemDbType;
+    gctBOOL acquired = gcvFALSE;
 
     gcmkHEADER_ARG("Kernel=%p ProcessID=%d Type=%d Pointer=%p Physical=%p Size=%lu",
                    Kernel, ProcessID, Type, Pointer, Physical, Size);
@@ -767,7 +780,8 @@ gckKERNEL_AddProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
         break;
     }
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, database->counterMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, database->counterMutex, gcvINFINITE));
+    acquired = gcvTRUE;
 
     if (count != gcvNULL) {
         /* Adjust counters. */
@@ -820,6 +834,12 @@ gckKERNEL_AddProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
     return gcvSTATUS_OK;
 
 OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, database->counterMutex));
+
+    if (record)
+        gcmkVERIFY_OK(gckKERNEL_DeleteRecord(Kernel, database, Type, Pointer, gcvNULL));
+
     /* Return the status. */
     gcmkFOOTER();
     return status;
@@ -879,7 +899,7 @@ gckKERNEL_RemoveProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
     /* Delete the record. */
     gcmkONERROR(gckKERNEL_DeleteRecord(Kernel, database, Type, Pointer, &bytes));
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, database->counterMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, database->counterMutex, gcvINFINITE));
 
     /* Update counters. */
     switch (Type) {
@@ -1292,7 +1312,8 @@ gckKERNEL_DestroyProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID)
                     /* Deref handle. */
                     gcmkVERIFY_OK(gckVIDMEM_HANDLE_Dereference(record->kernel, ProcessID, handle));
 
-                    if (gcmIS_SUCCESS(status) && gcvTRUE == asynchronous) {
+                    if (gcmIS_SUCCESS(status) && gcvTRUE == asynchronous
+                        && !record->kernel->processPageTable) {
                         /* Schedule unlock: will unlock and deref node later. */
                         status = gckEVENT_Unlock(record->kernel->eventObj,
                                                  gcvKERNEL_PIXEL, mmu, nodeObject);
@@ -1461,6 +1482,7 @@ gckKERNEL_QueryProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
     gceSTATUS status;
     gcsDATABASE_PTR database;
     gcePOOL vidMemPool;
+    gctBOOL acquired = gcvFALSE;
 
     gcmkHEADER_ARG("Kernel=%p ProcessID=%d Type=%d Info=%p",
                    Kernel, ProcessID, Type, Info);
@@ -1477,7 +1499,8 @@ gckKERNEL_QueryProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
     /* Find the database. */
     gcmkONERROR(gckKERNEL_FindDatabase(Kernel, ProcessID, LastProcessID, &database));
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, database->counterMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, database->counterMutex, gcvINFINITE));
+    acquired = gcvTRUE;
 
     /* Get pointer to counters. */
     switch (Type) {
@@ -1521,6 +1544,9 @@ gckKERNEL_QueryProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
     return gcvSTATUS_OK;
 
 OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, database->counterMutex));
+
     /* Return the status. */
     gcmkFOOTER();
     return status;
@@ -1561,11 +1587,14 @@ gckKERNEL_DumpProcessDB(gckKERNEL Kernel)
     gcsDATABASE_PTR database;
     gctINT i, pid;
     gctUINT8 name[24];
+    gceSTATUS status;
+    gctBOOL acquired = gcvFALSE;
 
     gcmkHEADER_ARG("Kernel=%p", Kernel);
 
     /* Acquire the database mutex. */
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, Kernel->db->dbMutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, Kernel->db->dbMutex, gcvINFINITE));
+    acquired = gcvTRUE;
 
     gcmkPRINT("**************************\n");
     gcmkPRINT("***  PROCESS DB DUMP   ***\n");
@@ -1585,12 +1614,15 @@ gckKERNEL_DumpProcessDB(gckKERNEL Kernel)
         }
     }
 
-    /* Release the database mutex. */
-    gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->db->dbMutex));
+    status = gcvSTATUS_OK;
 
-    /* Success. */
-    gcmkFOOTER_NO();
-    return gcvSTATUS_OK;
+OnError:
+    /* Release the database mutex. */
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->db->dbMutex));
+
+    gcmkFOOTER();
+    return status;
 }
 
 void

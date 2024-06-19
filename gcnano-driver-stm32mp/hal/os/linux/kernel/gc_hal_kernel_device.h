@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -57,9 +57,12 @@
 #define __gc_hal_kernel_device_h_
 
 #include "gc_hal_kernel_debugfs.h"
+
+#if gcdENABLE_TRUST_APPLICATION
 #include "gc_hal_ta.h"
 
 extern gcTA             globalTA[gcvCORE_COUNT];
+#endif
 
 /*******************************************************************************
  ************************* gckGALDEVICE Structure ******************************
@@ -118,12 +121,15 @@ typedef struct _gckGALDEVICE {
     gcsDEBUGFS_DIR      debugfsDir;
 
     gckDEVICE           devices[gcdDEVICE_COUNT];
+    gctINT32            devIDs[gcdDEVICE_COUNT];
     gctUINT             devCount;
 
     gcsMODULE_PARAMETERS args;
 
+#if gcdENABLE_TRUST_APPLICATION
     /* gctsOs object for trust application. */
     gctaOS              taos;
+#endif
 
     /* If we are going to shut down. */
     gctBOOL             gotoShutdown;

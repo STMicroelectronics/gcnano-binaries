@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -120,7 +120,7 @@ _CreateSubCmdList(gckOS Os, gctPOINTER Buffer, gctSIZE_T Size,
     gctINT i, j, count;
     gctUINT32_PTR data = Buffer;
     gctUINT32 kData;
-    gckSubCmdNode node;
+    gckSubCmdNode node = gcvNULL;
     gceSTATUS status = gcvSTATUS_OK;
 
     count = (gctINT)(Size / 4);
@@ -130,7 +130,7 @@ _CreateSubCmdList(gckOS Os, gctPOINTER Buffer, gctSIZE_T Size,
             gcmkONERROR(gckOS_ReadMappedPointer(Os, data + i, &kData));
 
             if (kData == SubCommand[j].reg) {
-                _CreateSubCmdNode(Os, &node);
+                gcmkONERROR(_CreateSubCmdNode(Os, &node));
 
                 node->type = j;
 
@@ -141,11 +141,18 @@ _CreateSubCmdList(gckOS Os, gctPOINTER Buffer, gctSIZE_T Size,
 
                 node->next = ListHead->next;
                 ListHead->next = node;
+                node = gcvNULL;
             }
         }
     }
 
+    return gcvSTATUS_OK;
+
 OnError:
+    if (node != gcvNULL)
+        gcmkVERIFY_OK(gckOS_Free(Os, (gctPOINTER)node));
+
+    _DestroySubCmdList(Os, ListHead);
     return status;
 }
 #endif
@@ -178,6 +185,7 @@ _NewQueue(gckCOMMAND Command, gctBOOL Stalled)
 {
     gceSTATUS status;
     gctINT currentIndex, newIndex;
+    gckKERNEL kernel = Command->kernel;
 
     gcmkHEADER_ARG("Command=%p", Command);
 
@@ -188,7 +196,7 @@ _NewQueue(gckCOMMAND Command, gctBOOL Stalled)
     /* Wait for availability. */
     gcmkDUMP(Command->os, "#[kernel.waitsignal]");
 
-    gcmkONERROR(gckOS_WaitSignal(Command->os, Command->queues[newIndex].signal, gcvFALSE, gcvINFINITE));
+    gcmkONERROR(gckOS_WaitSignal(Command->os, Command->queues[newIndex].signal, gcvFALSE, kernel->timeOut));
 
 #if gcmIS_DEBUG(gcdDEBUG_TRACE)
     if (newIndex < currentIndex) {
@@ -226,6 +234,18 @@ _NewQueue(gckCOMMAND Command, gctBOOL Stalled)
             gcmkONERROR(gckEVENT_Signal(Command->kernel->eventObj,
                                         Command->queues[currentIndex].signal,
                                         gcvKERNEL_COMMAND));
+
+            /* If feType is gcvHW_FE_END, we will not submit event in gckEVENT_Commit, so we submit event here to trigger _NewQueue signal*/
+            if (Command->feType == gcvHW_FE_END) {
+                gcsEVENT_ATTR eventAttr = { 0 };
+
+                eventAttr.wait = gcvTRUE;
+                eventAttr.fromPower = gcvFALSE;
+                eventAttr.broadcast = gcvFALSE;
+
+                /* Submit the event list. */
+                gcmkONERROR(gckEVENT_Submit(Command->kernel->eventObj, &eventAttr));
+            }
         }
     }
 
@@ -1332,14 +1352,18 @@ gckCOMMAND_Destroy(gckCOMMAND Command)
     if (Command->mutexContext) {
         /* Delete the context switching mutex. */
         gcmkVERIFY_OK(gckOS_DeleteMutex(Command->os, Command->mutexContext));
+        Command->mutexContext = gcvNULL;
     }
 
-    if (Command->mutexContextSeq != gcvNULL)
+    if (Command->mutexContextSeq) {
         gcmkVERIFY_OK(gckOS_DeleteMutex(Command->os, Command->mutexContextSeq));
+        Command->mutexContextSeq = gcvNULL;
+    }
 
     if (Command->mutexQueue) {
         /* Delete the command queue mutex. */
         gcmkVERIFY_OK(gckOS_DeleteMutex(Command->os, Command->mutexQueue));
+        Command->mutexQueue = gcvNULL;
     }
 
     if (Command->powerSemaphore) {
@@ -2513,7 +2537,9 @@ _CommitEndOnce(gckCOMMAND Command,
     gckVIDMEM_NODE commandBufferVideoMem = gcvNULL;
     gctUINT8_PTR commandBufferTail = gcvNULL;
     gctUINT commandBufferSize;
+#if gcdDUMP_IN_KERNEL
     gctUINT32 offset = 0;
+#endif
     gctADDRESS endAddress;
     gctUINT32 endBytes;
 
@@ -2569,7 +2595,9 @@ _CommitEndOnce(gckCOMMAND Command,
         /* See if we have to switch pipes for the command buffer. */
         if (CommandBuffer->entryPipe == (gctUINT32)(Command->pipeSelect)) {
             /* Skip reserved head bytes. */
+#if gcdDUMP_IN_KERNEL
             offset = CommandBuffer->reservedHead;
+#endif
         } else {
             gctUINT32 pipeBytes = CommandBuffer->reservedHead;
 
@@ -2579,8 +2607,10 @@ _CommitEndOnce(gckCOMMAND Command,
             gcmkONERROR(gckHARDWARE_PipeSelect(Command->kernel->hardware, commandBufferLogical,
                                                CommandBuffer->entryPipe, &pipeBytes));
 
+#if gcdDUMP_IN_KERNEL
             /* Do not skip pipe switching sequence. */
             offset = 0;
+#endif
 
             /* Reserved bytes in userspace must be exact for a pipeSelect. */
             gcmkASSERT(pipeBytes == CommandBuffer->reservedHead);
@@ -4046,6 +4076,10 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
     return gcvSTATUS_OK;
 
 OnError:
+#if gcdDUMP_HW_SUBCOMMAND
+    if (subCommandList.count > 0)
+        _DestroySubCmdList(kernel->os, &subCommandList);
+#endif
     return status;
 }
 

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -101,6 +101,8 @@
 
 #define gcdDISABLE_NODE_OFFSET 1
 
+#define gcdDTS_POWER_DOMAIN 0
+
 gceSTATUS
 _AdjustParam(gcsPLATFORM *Platform, gcsMODULE_PARAMETERS *Args);
 
@@ -136,7 +138,7 @@ static struct _gcsPLATFORM_OPERATIONS default_ops = {
 #if gcdENABLE_VIDEO_MEMORY_MIRROR
     .dmaCopy            = _dmaCopy,
 #endif
-#if gcdSUPPORT_DEVICE_TREE_SOURCE
+#if gcdSUPPORT_DEVICE_TREE_SOURCE && gcdDTS_POWER_DOMAIN
     .setPower           = _set_power,
     .setClock           = _set_clock,
 #endif
@@ -482,11 +484,12 @@ struct _gcsPCIEInfo {
     uint32_t        sram_size;
     int             sram_bar;
     int             sram_offset;
+    struct completion probed;
 };
 
 struct _gcsPLATFORM_PCIE {
     struct _gcsPLATFORM base;
-    struct _gcsPCIEInfo pcie_info[gcdDEVICE_COUNT];
+    struct _gcsPCIEInfo pcie_info[gcdPLATFORM_COUNT];
     unsigned int        device_number;
 };
 
@@ -595,12 +598,19 @@ gpu_sub_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     static u64 dma_mask = DMA_40BIT_MASK;
 # endif
 
+    struct _gcsPCIEInfo *pcie_info;
+
     gcmkPRINT("PCIE DRIVER PROBED");
     if (pci_enable_device(pdev))
         pr_err("galcore: pci_enable_device() failed.\n");
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
+    if (dma_set_mask(&pdev->dev, dma_mask))
+        pr_err("galcore: Failed to set DMA mask.\n");
+# else
     if (pci_set_dma_mask(pdev, dma_mask))
         pr_err("galcore: Failed to set DMA mask.\n");
+# endif
 
     pci_set_master(pdev);
 
@@ -618,7 +628,12 @@ gpu_sub_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
         pr_err("galcore: Failed to enable bus master on PPC.\n");
 # endif
 
-    default_platform.pcie_info[default_platform.device_number++].pdev = pdev;
+
+    pcie_info = &default_platform.pcie_info[default_platform.device_number++];
+    pcie_info->pdev = pdev;
+
+    complete(&pcie_info->probed);
+
     return 0;
 }
 
@@ -994,6 +1009,15 @@ int gckPLATFORM_Init(struct platform_driver *pdrv, struct _gcsPLATFORM **platfor
 {
     int ret = 0;
 #if !gcdSUPPORT_DEVICE_TREE_SOURCE
+
+#if USE_LINUX_PCIE
+    u32 timeout = msecs_to_jiffies(5000);
+    struct _gcsPCIEInfo *pcie_info;
+    struct pci_dev *pdev = NULL;
+    int info_count, dev_count = 0;
+    int idx = 0;
+# endif
+
     struct platform_device *default_dev = platform_device_alloc(pdrv->driver.name, -1);
 
     if (!default_dev) {
@@ -1005,23 +1029,62 @@ int gckPLATFORM_Init(struct platform_driver *pdrv, struct _gcsPLATFORM **platfor
     ret = platform_device_add(default_dev);
     if (ret) {
         pr_err("galcore: platform_device_add failed.\n");
-        platform_device_put(default_dev);
-        return ret;
+        goto put_dev;
     }
 
 #if USE_LINUX_PCIE
+    info_count = gcmCOUNTOF(vivpci_ids);
+
+    do {
+        pdev = pci_get_device(vivpci_ids[idx].vendor, vivpci_ids[idx].device, pdev);
+        if (pdev)
+            dev_count++;
+        else
+            idx++;
+    } while (idx < info_count);
+
+    gcmkASSERT(dev_count <= gcdPLATFORM_COUNT);
+
+    for (idx = 0; idx < dev_count; idx++) {
+        pcie_info = &default_platform.pcie_info[idx];
+        init_completion(&pcie_info->probed);
+    }
+
     ret = pci_register_driver(&gpu_pci_subdriver);
     if (ret) {
-        platform_device_unregister(default_dev);
-        return ret;
+        goto del_dev;
     }
+
+    for (idx = 0; idx < dev_count; idx++) {
+        pcie_info = &default_platform.pcie_info[idx];
+
+        timeout = wait_for_completion_timeout(&pcie_info->probed, timeout);
+        if (timeout == 0) {
+            gcmkTRACE(gcvLEVEL_ERROR, "[galcore] failed to probe pcie device");
+            ret = -ENODEV;
+            goto pci_unregister;
+        }
+    }
+
 # endif
 #else
     pdrv->driver.of_match_table = gpu_dt_ids;
 #endif
 
     *platform = (gcsPLATFORM *)&default_platform;
+    return 0;
+
+#if !gcdSUPPORT_DEVICE_TREE_SOURCE
+#if USE_LINUX_PCIE
+pci_unregister:
+    pci_unregister_driver(&gpu_pci_subdriver);
+del_dev:
+    platform_device_del(default_dev);
+# endif
+put_dev:
+    platform_device_put(default_dev);
     return ret;
+#endif
 }
 
 int gckPLATFORM_Terminate(struct _gcsPLATFORM *platform)

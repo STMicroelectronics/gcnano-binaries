@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -99,6 +99,7 @@ typedef enum _gceCHIPMODEL {
     gcv7400 = 0x7400,
     gcv8000 = 0x8000,
     gcv8400 = 0x8400,
+    gcv8800 = 0x8800,
     gcv9100 = 0x9100,
     gcv9200 = 0x9200,
 } gceCHIPMODEL;
@@ -608,6 +609,7 @@ typedef enum _gceFEATURE {
     gcvFEATURE_NN_LEAKY_RELU,
     gcvFEATURE_NN_PRELU,
     gcvFEATURE_NN_NATIVE_STRIDE_TWO,
+    gcvFEATURE_BIT_NN_SUPPORT_CONV1x1_AND_NATIVE_CONV_STRIDE2,
     gcvFEATURE_NN_TENSOR_ADD,
 
     gcvFEATURE_IMAGE_LS_NO_FULLMASK_FIX,
@@ -682,10 +684,15 @@ typedef enum _gceFEATURE {
     gcvFEATURE_SH_HAS_32BIT_NEG_OFFSET_FIX_FOR_40BIT_VA,
     gcvFEATURE_SH_SUPPORT_AIGM,
     gcvFEATURE_SH_CS_PAGE_SIZE_ISSUE,
+    gcvFEATURE_SH_INTEGER_FRONT_FACE,
+    gcvFEATURE_SH_SUPPORT_MULTIVIEWPORT,
 
     gcvFEATURE_SH_PER_STAGE_LOCAL_STORAGE,
     gcvFEATURE_SH_SUPPORT_SEPARATED_TEX,
     gcvFEATURE_SH_SUPPORT_CLIP_CULL_DISTANCE,
+    gcvFEATURE_SH_D3D11_SUPPORT,
+
+    gcvFEATURE_SH_DYNAMIC_TEXTURE_INDEXING,
 
     /* AIGPU feature. */
     gcvFEATURE_AI_GPU,
@@ -845,6 +852,8 @@ typedef enum _gceFEATURE {
     gcvFEATURE_2D_STRETCH_MULTISOURCE_PIPE, /* move stretchblit pipe line to multisource blit */
 
     gcvFEATURE_BIT_PA_ZEROAREA_LINE_FIX, /* HW 2380 */
+    gcvFEATURE_BIT_RS_TILER_YUV420_FIX, /* HW 2114 */
+
     gcvFEATURE_BIT_NN_JOB_CANCELATION,
 
     gcvFEATURE_BIT_V8_DIRECT_MODE_START_ADDR_BIAS_FOR_NEGATIVE_OFFSET_FIX,
@@ -890,6 +899,19 @@ typedef enum _gceFEATURE {
     gcvFEATURE_BIT_NN_SPLIT_X_AMONG_CLUSTE,
     gcvFEATURE_BIT_SRAM_PARITY,
     gcvFEATURE_BIT_TRSP2_CONV_SMALLBATCH_FIX,
+    gcvFEATURE_BIT_NN_SUPPORT_GEMM_PHASE1,
+    gcvFEATURE_BIT_NN_SUPPORT_GEMM_PHASE2,
+    gcvFEATURE_NN_TENSOR_ADD_INT16,
+    gcvFEATURE_BIT_DEPTHTOSPACE_SAME_XY_FIX,
+    gcvFEATURE_BIT_NN_SUPPORT_ZDP_LOOP6,
+    gcvFEATURE_NN_ELEMENTWISE_BROADCAST,
+    gcvFEATURE_NN_2ND_IMAGE_DATA_TYPE,
+    gcvFEATURE_BIT_FP_INIMAGE_POST_SCALE,
+    gcvFEATURE_BIT_FASTXDP3_ONLY_IN_DEPTHWISE_FIX,
+    gcvFEATURE_BIT_NN_TILE_YSIZE_127_LIMITATION_FIX,
+    gcvFEATURE_BIT_NN_2ND_IMG_SMALL_3D_TILE_FIX,
+    gcvFEATURE_BIT_NN_CONV_1D_16BIT_FORMAT_INTILE_SIZE_LIMITATION_FIX,
+    gcvFEATURE_BIT_PERF_KERNEL_DESCRIPTOR_SOURCE_FIX,
 
     /* Insert features above this comment only. */
     gcvFEATURE_COUNT                /* Not a feature. */
@@ -1813,11 +1835,12 @@ typedef enum _gceSTATUS {
     gcvSTATUS_DEVICE                =   -27,
     gcvSTATUS_NOT_MULTI_PIPE_ALIGNED =   -28,
     gcvSTATUS_OUT_OF_SAMPLER         =   -29,
-    gcvSTATUS_CLOCK_ERROR           =   -30,
     gcvSTATUS_PROBE_LATER           =   -30,
     gcvSTATUS_RESLUT_OVERFLOW       =   -31,
     gcvSTATUS_RECOVERY              =   -32,
     gcvSTATUS_CANCEL_JOB            =   -33,
+    gcvSTATUS_CLOCK_ERROR         =   -34,
+
 
     /* register allocation errors. */
     gcvSTATUS_OUT_OF_REG_FAIL                   =   -100,
@@ -2064,6 +2087,8 @@ typedef enum _gceHAL_COMMAND_CODES {
     /* Destroy MMU. */
     gcvHAL_DESTROY_MMU,
 
+    /* Operate fence from user*/
+    gcvHAL_FENCE_OP,
     /*************** Reserved end ***************/
 } gceHAL_COMMAND_CODES;
 

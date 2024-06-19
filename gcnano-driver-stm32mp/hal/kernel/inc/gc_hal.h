@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -245,11 +245,6 @@ typedef struct _gckHARDWARE         *gckHARDWARE;
 # define gcmVERIFY_OBJECT_RETURN(obj, t)      do {} while (gcvFALSE)
 # define gcmkVERIFY_OBJECT_RETURN(obj, t)     do {} while (gcvFALSE)
 #endif
-
-typedef struct _gcsContiguousBlock {
-    gctUINT32   ptr;
-    gctSIZE_T   size;
-} gcsContiguousBlock;
 
 /******************************************************************************
  ********************************* gckOS Object *******************************
@@ -525,6 +520,23 @@ gckOS_TraceGpuMemory(IN gckOS Os, IN gctINT32 ProcessID, IN gctINT64 Delta);
 void
 gckOS_NodeIdAssign(gckOS Os, gcuVIDMEM_NODE_PTR Node);
 
+#if gcdENABLE_CLEAR_FENCE
+gceSTATUS
+gckOS_ClearAllFence(gckDEVICE Device);
+
+gctUINT64
+gckOS_AllocFenceRecordId(IN gckOS Os, IN gcsUSER_FENCE_INFO_PTR fence_info);
+
+gcsUSER_FENCE_INFO_PTR
+gckOS_ReleaseFenceRecordId(IN gckOS Os, IN gctUINT64 recordId);
+
+void
+gckOS_PreLoadFenceRecId(IN gckOS Os);
+
+void
+gckOS_PreLoadEndFenceRecId(IN gckOS Os);
+
+#endif
 /*******************************************************************************
  **
  **  gckOS_AtomConstruct
@@ -1215,27 +1227,6 @@ gckKERNEL_QueryDatabase(IN gckKERNEL Kernel,
 gceSTATUS
 gckKERNEL_QueryVideoMemory(IN gckKERNEL Kernel,
                            OUT struct _gcsHAL_INTERFACE *Interface);
-
-/* Query used memory nodes of a specific pool. */
-gceSTATUS
-gckKERNEL_QueryVidMemPoolNodes(
-    gckKERNEL            Kernel,
-    gcePOOL              Pool,
-    gctUINT32           *TotalSize, /* sum of the sizes of the contiguous blocks (i.e. total memory used at current time) : to be filled by the called function */
-    gcsContiguousBlock  *MemoryBlocks, /* previously allocated by the calling function : to be filled by the called function */
-    gctUINT32            NumMaxBlocks, /* provided by the calling function */
-    gctUINT32           *NumBlocks      /* actual number of contiguous blocks : to be filled by the called function */
-    );
-
-/* Query contiguous memory layout. */
-gceSTATUS
-gckGetContiguousMemoryLayout(
-    gctUINT32           *TotalSize, /* sum of the sizes of the contiguous blocks (i.e. total memory used at current time) : to be filled by the     called function */
-    gcsContiguousBlock  *MemoryBlocks, /* previously allocated by the calling function : to be filled by the called function */
-    gctUINT32            NumMaxBlocks, /* provided by the calling function */
-    gctUINT32           *NumBlocks      /* actual number of contiguous blocks : to be filled by the called function */
-    );
-
 
 /* Lookup the gckVIDMEM object for a pool. */
 gceSTATUS

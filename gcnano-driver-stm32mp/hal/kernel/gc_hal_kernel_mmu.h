@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -95,6 +95,10 @@
 # undef gcdMMU_VA_BITS
 # define gcdMMU_MTLB_SHIFT       30
 # define gcdMMU_VA_BITS          40
+
+#ifndef gcdDDR_SIZE_MAX
+# define gcdDDR_SIZE_MAX         0x800000000
+# endif
 #endif
 
 #define gcdMMU_STLB_4K_SHIFT        12
@@ -119,6 +123,8 @@
 
 #if defined(EMULATOR) && gcdENABLE_40BIT_VA
 # define gcdMMU_MTLB_ENTRY_NUM   40
+#elif gcdENABLE_40BIT_VA
+# define gcdMMU_MTLB_ENTRY_NUM   ((gcdDDR_SIZE_MAX * 2) >> 30)
 #else
 # define gcdMMU_MTLB_ENTRY_NUM   (1 << gcdMMU_MTLB_BITS)
 #endif
@@ -199,7 +205,7 @@
 
 #define gcmENTRY_TYPE(x)            ((x) & 0xF0)
 
-#define gcmENTRY_COUNT(x)           (((x) & 0xFFFFFF00) >> 8)
+#define gcmENTRY_COUNT(x)           (((x) & 0xFFFFFFFF00) >> 8)
 
 #define gcdMMU_TABLE_DUMP           0
 
@@ -274,7 +280,7 @@ typedef struct _gcsADDRESS_AREA {
     gctUINT32                   mappingStart;
     gctUINT32                   mappingEnd;
 
-    gctUINT32_PTR               mapLogical;
+    gctUINT64_PTR               mapLogical;
 
     gctUINT32                   usedIndex;
 } gcsADDRESS_AREA;

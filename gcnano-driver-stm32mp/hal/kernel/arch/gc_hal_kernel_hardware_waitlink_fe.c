@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -820,6 +820,10 @@ gckWLFE_Event(gckHARDWARE Hardware,
             FromWhere = gcvKERNEL_BLT;
     }
 
+    if (Hardware->identity.chipModel == 0x8400 &&
+        Hardware->identity.customerID == 0x54)
+        FromWhere = gcvKERNEL_PIXEL;
+
     blt = FromWhere == gcvKERNEL_BLT ? gcvTRUE : gcvFALSE;
 
     multiCluster = gckHARDWARE_IsFeatureAvailable(Hardware, gcvFEATURE_MULTI_CLUSTER);
@@ -1073,11 +1077,24 @@ gckWLFE_Execute(gckHARDWARE Hardware, gctADDRESS Address, gctUINT32 Bytes)
 
     if (command->feType == gcvHW_FE_END) {
         gctUINT idle = 0;
+        gctUINT32 timer = 0, delay = 10;
 
         /* Make sure FE is idle. */
         do {
+            gcmkVERIFY_OK(gckOS_Udelay(Hardware->os, delay));
+
             gcmkVERIFY_OK(gckOS_ReadRegisterEx(Hardware->os, Hardware->kernel,
                                                0x00004, &idle));
+
+            timer += delay;
+            delay *= 2;
+
+#if gcdGPU_TIMEOUT
+            if (timer >= Hardware->kernel->timeOut * 1000) {
+                gcmkPRINT("[Galcore]: GPU timeout...\n");
+                gcmkONERROR(gcvSTATUS_DEVICE);
+            }
+#endif
         } while (idle != 0x7FFFFFFF);
     }
 
@@ -1087,7 +1104,7 @@ gckWLFE_Execute(gckHARDWARE Hardware, gctADDRESS Address, gctUINT32 Bytes)
 
     if (gckHARDWARE_IsFeatureAvailable(Hardware, gcvFEATURE_BIT_SRAM_PARITY)) {
         gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
-                                          0x005FC, 0x1));
+                                          0x00344, 0x1));
     }
 
     gcmkSAFECASTVA(address, Address);

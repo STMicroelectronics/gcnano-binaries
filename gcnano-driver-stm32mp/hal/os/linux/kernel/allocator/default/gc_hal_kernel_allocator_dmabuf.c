@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -65,6 +65,9 @@
 #include <linux/dma-mapping.h>
 
 #include <linux/dma-buf.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+#include <linux/dma-resv.h>
+#endif
 #include <linux/platform_device.h>
 
 #define _GC_OBJ_ZONE gcvZONE_OS
@@ -119,7 +122,11 @@ dma_buf_info_show(struct seq_file *m, void *data)
     list_for_each_entry(buf_desc, &priv->buf_list, list) {
         struct dma_buf *buf_obj = buf_desc->dmabuf;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+        ret = dma_resv_lock_interruptible(buf_obj->resv, NULL);
+#else
         ret = mutex_lock_interruptible(&buf_obj->lock);
+#endif
 
         if (ret) {
             seq_puts(m, "ERROR locking buffer object: skipping\n");
@@ -144,7 +151,11 @@ dma_buf_info_show(struct seq_file *m, void *data)
         size += buf_obj->size;
         npages += buf_desc->npages;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+        dma_resv_unlock(buf_obj->resv);
+#else
         mutex_unlock(&buf_obj->lock);
+#endif
     }
 
     seq_printf(m, "\nTotal %d objects, %d pages, %zu bytes\n", count, npages, size);
@@ -191,6 +202,7 @@ _DmabufAttach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL Mdl)
     struct scatterlist *s;
     struct allocator_priv *priv = Allocator->privateData;
     gcsDMABUF *buf_desc = NULL;
+    gctBOOL acquiredMutex = gcvFALSE;
 
     gcmkHEADER();
 
@@ -241,9 +253,13 @@ _DmabufAttach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL Mdl)
     buf_desc->npages = npages;
     buf_desc->pid = _GetProcessID();
 
-    mutex_lock(&priv->lock);
+    gcmkONERROR(gckOS_AcquireMutex(os, &priv->lock, gcvINFINITE));
+    acquiredMutex = gcvTRUE;
+
     list_add(&buf_desc->list, &priv->buf_list);
-    mutex_unlock(&priv->lock);
+
+    gcmkONERROR(gckOS_ReleaseMutex(os, &priv->lock));
+    acquiredMutex = gcvFALSE;
 
     /* Record page number. */
     Mdl->numPages = npages;
@@ -260,6 +276,9 @@ OnError:
         gcmkOS_SAFE_FREE(os, pagearray);
     }
 
+    if (acquiredMutex)
+        gckOS_ReleaseMutex(os, &priv->lock);
+
     if (sgt)
         dma_buf_unmap_attachment(attachment, sgt, DMA_BIDIRECTIONAL);
 
@@ -273,10 +292,16 @@ _DmabufFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
     gcsDMABUF *buf_desc = Mdl->priv;
     gckOS os = Allocator->os;
     struct allocator_priv *priv = Allocator->privateData;
+    gctBOOL acquiredMutex = gcvFALSE;
+    gceSTATUS status = gcvSTATUS_OK;
 
-    mutex_lock(&priv->lock);
+    gcmkONERROR(gckOS_AcquireMutex(os, &priv->lock, gcvINFINITE));
+    acquiredMutex = gcvTRUE;
+
     list_del(&buf_desc->list);
-    mutex_unlock(&priv->lock);
+
+    gcmkONERROR(gckOS_ReleaseMutex(os, &priv->lock));
+    acquiredMutex = gcvFALSE;
 
     dma_buf_unmap_attachment(buf_desc->attachment, buf_desc->sgt, DMA_BIDIRECTIONAL);
 
@@ -287,6 +312,12 @@ _DmabufFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
     gckOS_Free(os, buf_desc->pagearray);
 
     gckOS_Free(os, buf_desc);
+
+OnError:
+    if (acquiredMutex)
+        gckOS_ReleaseMutex(os, &priv->lock);
+
+    return;
 }
 
 static void
@@ -382,11 +413,11 @@ _DmabufCache(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset,
 
 static gceSTATUS
 _DmabufPhysical(gckALLOCATOR Allocator, PLINUX_MDL Mdl,
-                gctUINT32 Offset, gctPHYS_ADDR_T *Physical)
+                unsigned long Offset, gctPHYS_ADDR_T *Physical)
 {
     gcsDMABUF *buf_desc = Mdl->priv;
     gctUINT32 offsetInPage = Offset & ~PAGE_MASK;
-    gctUINT32 index = Offset / PAGE_SIZE;
+    gctUINT32 index = (gctUINT32)(Offset / PAGE_SIZE);
 
     *Physical = buf_desc->pagearray[index] + offsetInPage;
 
@@ -410,6 +441,7 @@ _DmabufAllocatorDestructor(gcsALLOCATOR *Allocator)
 {
     _DebugfsCleanup(Allocator);
 
+    gckOS_ZeroMemory(Allocator->privateData, sizeof(struct allocator_priv));
     kfree(Allocator->privateData);
 
     kfree(Allocator);

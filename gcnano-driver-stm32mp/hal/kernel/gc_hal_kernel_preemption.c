@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -1038,18 +1038,21 @@ gckKERNEL_NormalPreemption(gckKERNEL Kernel)
     gckPREEMPT_COMMIT preemptCommit = gcvNULL;
     gceSTATUS status = gcvSTATUS_OK;
     gctBOOL queueAvailable;
+    gctBOOL acquired = gcvFALSE;
     gctINT id;
 
     for (id = gcdMAX_PRIORITY_QUEUE_NUM - 1; id >= 0; id--) {
         gcmkONERROR(gckOS_AcquireMutex(Kernel->os,
                                        Kernel->priorityQueueMutex[id],
                                        gcvINFINITE));
+        acquired = gcvTRUE;
 
         queueAvailable = gcvFALSE;
 
         queue = Kernel->priorityQueues[id];
         if (!queue || !queue->head) {
             gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
+            acquired = gcvFALSE;
             continue;
         } else {
             gcmkONERROR(gckKERNEL_PriorityQueueRemove(Kernel, queue, &preemptCommit));
@@ -1083,9 +1086,13 @@ gckKERNEL_NormalPreemption(gckKERNEL Kernel)
         }
 
         gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
+        acquired = gcvFALSE;
     }
 
 OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
+
     return status;
 }
 
@@ -1097,15 +1104,18 @@ gckKERNEL_FullPreemption(gckKERNEL Kernel)
     gceSTATUS status = gcvSTATUS_OK;
     gctINT32 curHighestPriorityID = 0;
     gctINT id;
+    gctBOOL acquired = gcvFALSE;
 
     for (id = gcdMAX_PRIORITY_QUEUE_NUM - 1; id >= 0; id--) {
         gcmkONERROR(gckOS_AcquireMutex(Kernel->os,
                                        Kernel->priorityQueueMutex[id],
                                        gcvINFINITE));
+        acquired = gcvTRUE;
 
         queue = Kernel->priorityQueues[id];
         if (!queue || !queue->head) {
             gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
+            acquired = gcvFALSE;
             continue;
         }
 
@@ -1158,12 +1168,14 @@ gckKERNEL_FullPreemption(gckKERNEL Kernel)
         } while (queue->head != gcvNULL);
 
         gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
+        acquired = gcvFALSE;
     }
 
     return gcvSTATUS_OK;
 
 OnError:
-    gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->priorityQueueMutex[id]));
 
     return status;
 }

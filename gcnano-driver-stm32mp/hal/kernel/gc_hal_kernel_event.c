@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -672,7 +672,10 @@ gckEVENT_Destroy(gckEVENT Event)
     }
 
     /* Delete the queue mutex. */
-    gcmkVERIFY_OK(gckOS_DeleteMutex(Event->os, Event->eventQueueMutex));
+    if (Event->eventQueueMutex) {
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Event->os, Event->eventQueueMutex));
+        Event->eventQueueMutex = gcvNULL;
+    }
 
     /* Free all free events. */
     while (Event->freeEventList != gcvNULL) {
@@ -683,7 +686,10 @@ gckEVENT_Destroy(gckEVENT Event)
     }
 
     /* Delete the free mutex. */
-    gcmkVERIFY_OK(gckOS_DeleteMutex(Event->os, Event->freeEventMutex));
+    if (Event->freeEventMutex) {
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Event->os, Event->freeEventMutex));
+        Event->freeEventMutex = gcvNULL;
+    }
 
     /* Free all pending queues. */
     while (Event->queueHead != gcvNULL) {
@@ -716,7 +722,10 @@ gckEVENT_Destroy(gckEVENT Event)
     }
 
     /* Delete the list mutex. */
-    gcmkVERIFY_OK(gckOS_DeleteMutex(Event->os, Event->eventListMutex));
+    if (Event->eventListMutex) {
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Event->os, Event->eventListMutex));
+        Event->eventListMutex = gcvNULL;
+    }
 
     gcmkVERIFY_OK(gckOS_AtomDestroy(Event->os, Event->pending));
 
@@ -1269,8 +1278,12 @@ gckEVENT_Submit(gckEVENT Event, gckEVENT_ATTR EventAttr)
 
     gckOS_GetTicks(&Event->lastCommitStamp);
 
+    gcmkONERROR(gckOS_AcquireMutex(Event->os, Event->eventListMutex, gcvINFINITE));
+    queue = Event->queueHead;
+    gcmkONERROR(gckOS_ReleaseMutex(Event->os, Event->eventListMutex));
+
     /* Are there event queues? */
-    if (Event->queueHead != gcvNULL) {
+    if (queue) {
         if (broadcast) {
             /* Acquire the command queue. */
             gcmkONERROR(gckCOMMAND_EnterCommit(command, fromPower));
@@ -1284,11 +1297,16 @@ gckEVENT_Submit(gckEVENT Event, gckEVENT_ATTR EventAttr)
             commitStamp -= 1;
 
         /* Process all queues. */
-        while (Event->queueHead != gcvNULL) {
+        while (gcvTRUE) {
             /* Acquire the list mutex. */
             gcmkONERROR(gckOS_AcquireMutex(Event->os, Event->eventListMutex, gcvINFINITE));
             acquired = gcvTRUE;
 
+            if (!Event->queueHead) {
+                gcmkONERROR(gckOS_ReleaseMutex(Event->os, Event->eventListMutex));
+                acquired = gcvFALSE;
+                break;
+            }
             /* Get the current queue. */
             queue = Event->queueHead;
 

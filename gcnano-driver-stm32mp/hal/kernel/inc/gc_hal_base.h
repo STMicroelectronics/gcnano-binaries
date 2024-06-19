@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -111,6 +111,10 @@ typedef struct _gcsSYNC_CONTEXT        *gcsSYNC_CONTEXT_PTR;
 
 typedef struct _gcsUSER_MEMORY_DESC    *gcsUSER_MEMORY_DESC_PTR;
 
+#if gcdENABLE_CLEAR_FENCE
+typedef struct _gcsUSER_FENCE_INFO *gcsUSER_FENCE_INFO_PTR;
+#endif
+
 /* Immuatable features from database */
 typedef struct _gcsNN_FIXED_FEATURE {
     gctUINT  vipCoreCount;
@@ -145,7 +149,12 @@ typedef struct _gcsNN_FIXED_FEATURE {
     gctUINT  nnMaxKZSize;
     gctUINT  nnClusterNumForPowerControl;
     gctUINT  vipMinAxiBurstSize;
+    gctUINT  nnInLinesPerCycle;
+    gctUINT  nnPreprocessorMaxSegmentPerCycle;
+
+    /* stream processor info */
     gctUINT  streamProcessorExecCount;
+    gctUINT  streamProcessorVectorSize;
 
     /* add related information for check in/out size */
     gctUINT  outImageXStrideBits;
@@ -166,6 +175,7 @@ typedef struct _gcsNN_CUSTOMIZED_FEATURE {
     gctUINT  nnCoreCount;         /* total nn core count */
     gctUINT  nnCoreCountInt8;     /* total nn core count supporting int8 */
     gctUINT  nnCoreCountInt16;    /* total nn core count supporting int16 */
+    gctUINT  nnCoreCountUint16;    /* total nn core count supporting uint16 */
     gctUINT  nnCoreCountFloat16;  /* total nn core count supporting float16 */
     gctUINT  nnCoreCountBFloat16; /* total nn core count supporting Bfloat16 */
     gctUINT  vipSRAMSize;
@@ -188,6 +198,7 @@ typedef struct _gcsNN_CUSTOMIZED_FEATURE {
     gctUINT  depthWiseSupport;
     gctUINT  vipVectorPrune;
     gctUINT  ddrKernelBurstSize;
+    gctFLOAT  axiSRAMLatency;
 } gcsNN_CUSTOMIZED_FEATURE;
 
 /* Features are unified (hardcoded) for hardwares */
@@ -233,6 +244,7 @@ typedef struct _gcsNN_DERIVIED_FEATURE {
     gctFLOAT internalLatency;
     gctFLOAT ddrReadBWInBytePerCycle;
     gctFLOAT ddrWriteBWInBytePerCycle;
+    gctFLOAT totalAxiSRAMLatency;
 } gcsNN_DERIVED_FEATURE;
 
 /******************************************************************************
@@ -1071,6 +1083,9 @@ gcoOS_DeviceControl(IN gcoOS Os,
 
 #define gcdMAX_PATH 512
 
+#define gcdMAX_ARGUMENT_SIZE 1024
+#define gcdMAX_ARGUMENT_COUNT 64
+
 /* Open a file. */
 gceSTATUS
 gcoOS_Open(IN gcoOS Os,
@@ -1238,6 +1253,10 @@ gcoOS_StrNCmp(IN gctCONST_STRING String1,
 gceSTATUS
 gcoOS_StrToFloat(IN gctCONST_STRING String, OUT gctFLOAT *Float);
 
+/* Convert string to double. */
+gceSTATUS
+gcoOS_StrToDouble(IN gctCONST_STRING String, OUT gctDOUBLE* Double);
+
 /* Convert hex string to integer. */
 gceSTATUS
 gcoOS_HexStrToInt(IN gctCONST_STRING String, OUT gctINT *Int);
@@ -1311,6 +1330,12 @@ gcoOS_QueryVideoMemory(IN gcoOS Os,
 
 gceSTATUS
 gcoOS_QueryCurrentProcessName(OUT gctSTRING Name, IN gctSIZE_T Size);
+
+gceSTATUS
+gcoOS_QueryCurrentProcessArguments(OUT gctCHAR Argv[gcdMAX_ARGUMENT_COUNT][gcdMAX_ARGUMENT_SIZE],
+                                   OUT gctUINT32 *Argc,
+                                   IN  gctUINT32 MaxArgc,
+                                   IN  gctUINT32 MaxSizePerArg);
 
 /*----------------------------------------------------------------------------*/
 /*----- Atoms ----------------------------------------------------------------*/
@@ -2129,6 +2154,13 @@ gcoSURF_QueryOrientation(IN gcoSURF Surface, OUT gceORIENTATION *Orientation);
 gceSTATUS
 gcoSURF_NODE_Cache(IN gcsSURF_NODE_PTR Node,
                    IN gctPOINTER Logical,
+                   IN gctSIZE_T Bytes,
+                   IN gceCACHEOPERATION Operation);
+
+gceSTATUS
+gcoSURF_NODE_CacheEx(IN gcsSURF_NODE_PTR Node,
+                   IN gctPOINTER Logical,
+                   IN gctSIZE_T Offset,
                    IN gctSIZE_T Bytes,
                    IN gceCACHEOPERATION Operation);
 
@@ -3501,8 +3533,8 @@ gckOS_Verify(IN gceSTATUS status);
         gcmkASSERT(verifyStatus == gcvSTATUS_OK);               \
     } while (gcvFALSE)
 #else
-#    define gcmVERIFY_OK(func)       do{ func; } while (gcvFALSE)
-#    define gcmkVERIFY_OK(func)      do{ func; } while (gcvFALSE)
+# define gcmVERIFY_OK(func)          func
+# define gcmkVERIFY_OK(func)         func
 #endif
 
 gctCONST_STRING
@@ -4863,7 +4895,7 @@ gcoHAL_GetUserDebugOption(void);
         }                                                                       \
     }
 
-#define gcmCONFIGUSC2(prefix, featureUSC, featureSeparateLS, featureComputeOnly, \
+#define gcmCONFIGUSC2(prefix, Hardware, featureUSC, featureSeparateLS, featureComputeOnly, \
     featureTS, featureL1CacheSize, featureUSCMaxPages, \
     attribCacheRatio, L1CacheRatio) \
 { \
@@ -4891,6 +4923,9 @@ gcoHAL_GetUserDebugOption(void);
                 { \
                     /* GS/TS must be bundled. */ \
                     attribBufSizeInKB = 42; \
+                    attribCacheRatio = (Hardware->identity.chipModel != gcv8800)? \
+                                        0x3 \
+                                       : 0x4; \
                 } \
                 else \
                 { \

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -148,6 +148,17 @@ extern "C" {
 
 /* kernel layer keyword. */
 #define gcmkINLINE            inline
+
+/* kernel fall-through keyword. */
+#if defined __has_attribute
+#if __has_attribute(__fallthrough__)
+#  define gcmkFALLTHRU                   __attribute__((__fallthrough__))
+# else
+#  define gcmkFALLTHRU                   do {} while (0)  /* fallthrough */
+# endif
+#else
+# define gcmkFALLTHRU                    do {} while (0)  /* fallthrough */
+#endif
 
 /* Possible debug flags. */
 #define gcdDEBUG_NONE           0
@@ -355,6 +366,9 @@ typedef union _gcuFLOAT_UINT32 {
 /* Lower 4G VA range. */
 #define gcvALLOC_FLAG_32BIT_VA              0x00040000
 #define gcvALLOC_FLAG_PRIOR_32BIT_VA        0x00080000
+
+/* Dynamically allocate local memory pool memory. */
+#define gcvALLOC_FLAG_DYNAMIC_ALLOC_LOCAL   0x00100000
 
 /* Real allocation happens when GPU page fault. */
 #define gcvALLOC_FLAG_ALLOC_ON_FAULT        0x01000000

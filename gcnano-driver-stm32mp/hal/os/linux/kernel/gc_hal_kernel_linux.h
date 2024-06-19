@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -96,7 +96,10 @@
 #include "gc_hal_kernel_device.h"
 #include "gc_hal_kernel_os.h"
 #include "gc_hal_kernel_debugfs.h"
+
+#if gcdENABLE_TRUST_APPLICATION
 #include "gc_hal_ta.h"
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 31)
 # define FIND_TASK_BY_PID(x) pid_task(find_vpid(x), PIDTYPE_PID)
@@ -188,6 +191,10 @@
 # define gcdUSE_LINUX_SG_TABLE_API   0
 #endif
 
+#ifndef gcdWAR_PCIE_WC
+#define gcdWAR_PCIE_WC 0
+#endif
+
 /******************************************************************************
  ********************************** Structures ********************************
  *****************************************************************************/
@@ -272,6 +279,9 @@ struct _gckOS {
     gcsDEBUGFS_DIR              dumpDebugfsDir;
 
     atomic_t                    nodeID;
+#if gcdENABLE_CLEAR_FENCE
+    struct idr                  fenceIdr;
+#endif
 };
 
 typedef struct _gcsSIGNAL *gcsSIGNAL_PTR;
@@ -327,7 +337,7 @@ gceSTATUS
 _ConvertLogical2Physical(gckOS Os, gctPOINTER Logical, gctUINT32 ProcessID,
                          PLINUX_MDL Mdl, gctPHYS_ADDR_T *Physical);
 
-gctBOOL
+gceSTATUS
 _QuerySignal(gckOS Os, gctSIGNAL Signal);
 
 static inline gctINT
@@ -366,6 +376,12 @@ is_vmalloc_addr(void *Addr)
     return addr >= VMALLOC_START && addr < VMALLOC_END;
 }
 #endif
+
+void
+viv_device_node_destroy(uint32_t dev_index);
+
+gceSTATUS
+viv_device_node_create(uint32_t dev_index);
 
 void
 gckIOMMU_Destory(gckOS Os, gckIOMMU Iommu);

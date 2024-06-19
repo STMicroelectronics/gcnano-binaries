@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -78,6 +78,14 @@ extern "C" {
 #endif
 
 #define gcdRECOVERY_FORCE_TIMEOUT 100
+
+#ifndef gcdENABLE_VIRTUAL_POOL
+#define gcdENABLE_VIRTUAL_POOL 1
+#endif
+
+#ifndef gcdDYNAMIC_ALLOC_LOCAL_MEMORY
+#define gcdDYNAMIC_ALLOC_LOCAL_MEMORY 0
+#endif
 
 /*******************************************************************************
  ***** Stuck Dump Level ********************************************************/
@@ -347,6 +355,8 @@ struct _gckDB {
 
     gcsLISTHEAD                 videoMemList;
     gctPOINTER                  videoMemListMutex;
+
+    gctPOINTER                  refcnt;
 };
 
 /* gckKERNEL object. */
@@ -702,6 +712,8 @@ struct _gckCOMMAND {
 
     /* Kernel process ID. */
     gctUINT32                   kernelProcessID;
+
+    gctUINT32                   kernelProcessAttached;
 
 #if gcdRECORD_COMMAND
     gckRECORDER                 recorder;
@@ -1245,6 +1257,19 @@ typedef struct _gcsCORE_LIST {
     gctUINT32   num;
 } gcsCORE_LIST;
 
+#if gcdENABLE_CLEAR_FENCE
+typedef struct _gcsUSER_FENCE_INFO {
+    gctADDRESS addr;
+    gctUINT64  fenceValue;
+    gctUINT64  recordId;
+
+    /* Link in _gcsDEVICE::fenceList */
+    gcsLISTHEAD fenceLink;
+    gctINT32   tid;
+    gctBOOL    use64BitFence;
+} gcsUSER_FENCE_INFO;
+#endif
+
 /* A gckDEVICE is a group of cores (gckKERNEL in software). */
 typedef struct _gcsDEVICE {
     /* Global device id in all the platforms. */
@@ -1381,6 +1406,11 @@ typedef struct _gcsDEVICE {
     gctPOINTER                  atomPriorityID;
     gctPOINTER                  preemptThread[gcvCORE_COUNT];
     gctBOOL                     preemptThreadInits[gcvCORE_COUNT];
+#endif
+
+#if gcdENABLE_CLEAR_FENCE
+    gcsLISTHEAD                 fenceList;
+    gctPOINTER                  fenceListMutex;
 #endif
 } gcsDEVICE;
 

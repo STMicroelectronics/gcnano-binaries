@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -55,7 +55,6 @@
 
 #include <linux/device.h>
 #include <linux/slab.h>
-#include <linux/uaccess.h>
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
 
@@ -74,15 +73,31 @@ MODULE_LICENSE("Dual MIT/GPL");
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
 #endif
 
-static struct class *gpuClass;
+static struct class *gpu_class = gcvNULL;
 
 static gcsPLATFORM *platform;
 
-gckGALDEVICE galDevice;
+static gckGALDEVICE galDevice;
 
 static int gpu3DMinClock = 1;
 static int contiguousRequested;
 static ulong bankSize;
+
+static struct miscdevice *gal_misc_device[gcdDEVICE_COUNT];
+
+static uint32_t
+viv_get_dev_index(uint32_t minor)
+{
+    int dev_index = 0;
+
+    for (dev_index = 0; dev_index < galDevice->args.devCount; dev_index++) {
+        if (galDevice->devIDs[dev_index] == minor)
+            return dev_index;
+    }
+
+    /* If not found the correct device index. */
+    return gcdDEVICE_COUNT;
+}
 
 static void
 _InitModuleParam(gcsMODULE_PARAMETERS *ModuleParam)
@@ -95,7 +110,7 @@ _InitModuleParam(gcsMODULE_PARAMETERS *ModuleParam)
 
     for (i = 0; i < gcdGLOBAL_CORE_COUNT; i++) {
         p->irqs[i] = irqs[i];
-        if (irqs[i] != -1) {
+        if (irqs[i] != -1 || gcmBITTEST(isrPoll, i) != 0) {
             p->registerBases[i] = registerBases[i];
             p->registerSizes[i] = registerSizes[i];
         }
@@ -537,12 +552,19 @@ static int drv_open(struct inode *inode, struct file *filp)
 {
     gceSTATUS status = gcvSTATUS_OK;
     gcsHAL_PRIVATE_DATA_PTR data = gcvNULL;
-    gctUINT i, devIndex;
+    gctUINT i, dev_index;
     gctUINT attached = 0;
-    gctUINT index    = 0;
-    gckDEVICE device;
+    gckDEVICE device = gcvNULL;
 
     gcmkHEADER_ARG("inode=%p filp=%p", inode, filp);
+
+    dev_index = iminor(file_inode(filp));
+
+    if (type == 1)
+        dev_index = viv_get_dev_index(dev_index);
+
+    if (dev_index >= gcdDEVICE_COUNT)
+        return -ENODEV;
 
     data = kmalloc(sizeof(gcsHAL_PRIVATE_DATA), GFP_KERNEL | __GFP_NOWARN);
 
@@ -555,22 +577,18 @@ static int drv_open(struct inode *inode, struct file *filp)
     data->device   = galDevice;
     data->pidOpen  = _GetProcessID();
 
-    for (devIndex = 0; devIndex < galDevice->args.devCount; devIndex++) {
-        device = galDevice->devices[devIndex];
+    device = galDevice->devices[dev_index];
 
-        /* Attached the process. */
-        for (i = 0; i < gcvCORE_COUNT; i++) {
-            if (device->kernels[i]) {
-                status = gckKERNEL_AttachProcess(device->kernels[i], gcvTRUE);
+    /* Attached the process. */
+    for (i = 0; i < gcvCORE_COUNT; i++) {
+        if (device->kernels[i]) {
+            status = gckKERNEL_AttachProcess(device->kernels[i], gcvTRUE);
 
-                if (gcmIS_ERROR(status))
-                    goto OnError;
+            if (gcmIS_ERROR(status))
+                goto OnError;
 
-                attached = i;
-            }
+            attached = i;
         }
-
-        index = devIndex;
     }
 
     filp->private_data = data;
@@ -581,17 +599,8 @@ static int drv_open(struct inode *inode, struct file *filp)
 
 OnError:
     for (i = 0; i < attached; i++) {
-        if (device->kernels[i])
+        if (device && device->kernels[i])
             gcmkVERIFY_OK(gckKERNEL_AttachProcess(device->kernels[i], gcvFALSE));
-    }
-
-    for (devIndex = 0; devIndex < index; devIndex++) {
-        device = galDevice->devices[devIndex];
-
-        for (i = 0; i < gcvCORE_COUNT; i++) {
-            if (device->kernels[i])
-                gcmkVERIFY_OK(gckKERNEL_AttachProcess(device->kernels[i], gcvFALSE));
-        }
     }
 
     kfree(data);
@@ -607,9 +616,17 @@ static int drv_release(struct inode *inode, struct file *filp)
     gcsHAL_PRIVATE_DATA_PTR data;
     gckGALDEVICE gal_device = gcvNULL;
     gckDEVICE device = gcvNULL;
-    gctUINT i, devIndex;
+    gctUINT i, dev_index;
 
     gcmkHEADER_ARG("inode=%p filp=%p", inode, filp);
+
+    dev_index = iminor(file_inode(filp));
+
+    if (type == 1)
+        dev_index = viv_get_dev_index(dev_index);
+
+    if (dev_index >= gcdDEVICE_COUNT)
+        return -ENODEV;
 
     data = filp->private_data;
 
@@ -640,15 +657,13 @@ static int drv_release(struct inode *inode, struct file *filp)
     }
 
     /* A process gets detached. */
-    for (devIndex = 0; devIndex < gal_device->args.devCount; devIndex++) {
-        device = gal_device->devices[devIndex];
+    device = gal_device->devices[dev_index];
 
-        /* A process gets detached. */
-        for (i = 0; i < gcvCORE_COUNT; i++) {
-            if (device->kernels[i]) {
-                gcmkVERIFY_OK(gckKERNEL_AttachProcessEx(device->kernels[i],
-                                                        gcvFALSE, data->pidOpen));
-            }
+    /* A process gets detached. */
+    for (i = 0; i < gcvCORE_COUNT; i++) {
+        if (device && device->kernels[i]) {
+            gcmkVERIFY_OK(gckKERNEL_AttachProcessEx(device->kernels[i],
+                                                    gcvFALSE, data->pidOpen));
         }
     }
 
@@ -667,17 +682,26 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
 {
     long ret = -ENOTTY;
     gceSTATUS status = gcvSTATUS_OK;
-    gcsHAL_INTERFACE iface;
+    gcsHAL_INTERFACE iface = {0};
     gctUINT32 copyLen;
     DRIVER_ARGS drvArgs;
     gckGALDEVICE gal_device;
     gckDEVICE device;
     gcsHAL_PRIVATE_DATA_PTR data;
+    gctUINT dev_index;
 #if VIVANTE_PROFILER
     static gcsHAL_PROFILER_INTERFACE iface_profiler;
 #endif
 
     gcmkHEADER_ARG("filp=%p ioctlCode=%u arg=%lu", filp, ioctlCode, arg);
+
+    dev_index = iminor(file_inode(filp));
+
+    if (type == 1)
+        dev_index = viv_get_dev_index(dev_index);
+
+    if (dev_index >= gcdDEVICE_COUNT)
+        return -ENODEV;
 
     data = filp->private_data;
 
@@ -712,6 +736,7 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
             gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
         }
 
+#if !gcdIGNORE_DRIVER_VERSIONS_MISMATCH
         /* Now bring in the gcsHAL_INTERFACE structure. */
         if (drvArgs.InputBufferSize != sizeof(gcsHAL_INTERFACE) ||
             drvArgs.OutputBufferSize != sizeof(gcsHAL_INTERFACE)) {
@@ -721,10 +746,11 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
 
             gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
         }
+#endif /* !gcdIGNORE_DRIVER_VERSIONS_MISMATCH */
 
         copyLen = copy_from_user(&iface,
                                  gcmUINT64_TO_PTR(drvArgs.InputBuffer),
-                                 sizeof(gcsHAL_INTERFACE));
+                                 drvArgs.InputBufferSize);
 
         if (copyLen != 0) {
             gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
@@ -742,8 +768,12 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
         }
 
         /* Record the last device id. */
-        data->devIndex = iface.devIndex;
+        if (!dev_index && dev_index != iface.devIndex)
+            dev_index = iface.devIndex;
 
+        data->devIndex = dev_index;
+
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
         if (iface.command == gcvHAL_CHIP_INFO) {
             gctUINT i, count = 0;
 
@@ -752,11 +782,13 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
 
                 gcmkONERROR(gckDEVICE_ChipInfo(device, &iface, &count));
             }
-        } else {
+        } else
+#endif
+        {
             if (iface.devIndex >= gcdDEVICE_COUNT)
                 gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
 
-            device = gal_device->devices[iface.devIndex];
+            device = gal_device->devices[dev_index];
 
             status = gckDEVICE_Dispatch(device, &iface);
 
@@ -770,7 +802,7 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
         /* Copy data back to the user. */
         copyLen = copy_to_user(gcmUINT64_TO_PTR(drvArgs.OutputBuffer),
                                &iface,
-                               sizeof(gcsHAL_INTERFACE));
+                               drvArgs.OutputBufferSize);
 
         if (copyLen != 0) {
             gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
@@ -819,7 +851,7 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
         if (iface_profiler.devIndex >= gcdDEVICE_COUNT)
             gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
 
-        device = gal_device->devices[iface_profiler.devIndex];
+        device = gal_device->devices[dev_index];
 
         status = gckDEVICE_Profiler_Dispatch(device, &iface_profiler);
 
@@ -877,18 +909,157 @@ static const struct file_operations driver_fops = {
 #endif
 };
 
-static struct miscdevice gal_device = {
-    .minor = MISC_DYNAMIC_MINOR,
-    .name  = DEVICE_NAME,
-    .fops  = &driver_fops,
-};
+gceSTATUS viv_misc_device_node_create(uint32_t dev_index)
+{
+    gceSTATUS status = gcvSTATUS_OK;
+    struct miscdevice *dev = kzalloc(sizeof(struct miscdevice), GFP_KERNEL);
+    gctINT32 ret;
+
+    if (!dev) {
+        ret = -ENOMEM;
+
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
+                       "%s(%d): misc_register fails.\n",
+                        __func__, __LINE__);
+
+        gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+    }
+
+    dev->minor = MISC_DYNAMIC_MINOR;
+    dev->fops = &driver_fops;
+    if (dev_index > 0)
+        dev->name = kasprintf(GFP_KERNEL, "galcore%d", dev_index);
+    else
+        dev->name = kasprintf(GFP_KERNEL, "galcore");
+
+    if (!dev->name) {
+        ret = -ENOMEM;
+
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
+                       "%s(%d): misc_register fails.\n",
+                        __func__, __LINE__);
+
+        gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+    }
+
+    ret = misc_register(dev);
+    if (ret != 0) {
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
+                       "%s(%d): misc_register fails.\n",
+                        __func__, __LINE__);
+
+        gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+    }
+
+    gal_misc_device[dev_index] = dev;
+    galDevice->devIDs[dev_index] = dev->minor;
+
+    return gcvSTATUS_OK;
+
+OnError:
+    /* If one node loads failed, try to release all the node resource. */
+    for (; dev_index >= 0; dev_index--) {
+        if (gal_misc_device[dev_index]) {
+            misc_deregister(gal_misc_device[dev_index]);
+            kfree(gal_misc_device[dev_index]->name);
+            gal_misc_device[dev_index]->name = gcvNULL;
+            kfree(gal_misc_device[dev_index]);
+            gal_misc_device[dev_index] = gcvNULL;
+        }
+    }
+
+    return status;
+}
+
+void viv_misc_device_node_destroy(uint32_t dev_index)
+{
+    gcmkASSERT(gal_misc_device[dev_index]);
+    misc_deregister(gal_misc_device[dev_index]);
+    kfree(gal_misc_device[dev_index]->name);
+    gal_misc_device[dev_index]->name = gcvNULL;
+    kfree(gal_misc_device[dev_index]);
+    gal_misc_device[dev_index] = gcvNULL;
+}
+
+void viv_char_device_node_destroy(uint32_t dev_index)
+{
+    gcmkASSERT(gpu_class != gcvNULL);
+    device_destroy(gpu_class, MKDEV(major, dev_index));
+}
+
+gceSTATUS viv_char_device_node_create(uint32_t dev_index)
+{
+    gceSTATUS status = gcvSTATUS_OK;
+    int result = -EINVAL;
+
+    gcmkHEADER();
+
+    if (!gpu_class) {
+        /* Register the character device. */
+        result = register_chrdev(major, DEVICE_NAME, &driver_fops);
+
+        if (result < 0) {
+            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
+                           "%s(%d): Could not allocate major number for mmap.\n",
+                           __func__, __LINE__);
+
+            gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+        }
+
+        if (major == 0)
+            major = result;
+
+        /* Create the device class. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+        gpu_class = class_create(CLASS_NAME);
+#else
+        gpu_class = class_create(THIS_MODULE, CLASS_NAME);
+#endif
+
+        if (IS_ERR(gpu_class)) {
+            gpu_class = gcvNULL;
+            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
+                           "%s(%d): Failed to create the class.\n",
+                           __func__, __LINE__);
+
+            gcmkONERROR(gcvSTATUS_OUT_OF_RESOURCES);
+        }
+    }
+
+    if (dev_index > 0) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
+        device_create(gpu_class, NULL, MKDEV(major, dev_index), NULL, "galcore%d", dev_index);
+#else
+        device_create(gpu_class, NULL, MKDEV(major, dev_index), "galcore%d", dev_index);
+#endif
+    } else { /* Compatible with old style. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
+        device_create(gpu_class, NULL, MKDEV(major, dev_index), NULL, DEVICE_NAME);
+#else
+        device_create(gpu_class, NULL, MKDEV(major, dev_index), DEVICE_NAME);
+#endif
+    }
+
+    gcmkFOOTER_NO();
+    return gcvSTATUS_OK;
+
+OnError:
+    /* Roll back. */
+    if (gpu_class)
+        class_destroy(gpu_class);
+
+    if (result < 0)
+        unregister_chrdev(result, DEVICE_NAME);
+
+    gcmkFOOTER();
+    return status;
+}
 
 static int drv_init(void)
 {
-    int result = -EINVAL;
     gceSTATUS status;
     gckGALDEVICE device = gcvNULL;
-    struct class *device_class = gcvNULL;
+    gctUINT dev_index = 0;
 
     gcmkHEADER();
 
@@ -914,89 +1085,43 @@ static int drv_init(void)
     /* Set global galDevice pointer. */
     galDevice = device;
 
-    if (type == 1) {
-        /* Register as misc driver. */
-        result = misc_register(&gal_device);
-
-        if (result < 0) {
-            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
-                           "%s(%d): misc_register fails.\n",
-                           __func__, __LINE__);
-
-            gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
-        }
-    } else {
-        /* Register the character device. */
-        result = register_chrdev(major, DEVICE_NAME, &driver_fops);
-
-        if (result < 0) {
-            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
-                           "%s(%d): Could not allocate major number for mmap.\n",
-                           __func__, __LINE__);
-
-            gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
-        }
-
-        if (major == 0)
-            major = result;
-
-        /* Create the device class. */
-        device_class = class_create(THIS_MODULE, CLASS_NAME);
-
-        if (IS_ERR(device_class)) {
-            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
-                           "%s(%d): Failed to create the class.\n",
-                           __func__, __LINE__);
-
-            gcmkONERROR(gcvSTATUS_OUT_OF_RESOURCES);
-        }
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
-        device_create(device_class, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
-#else
-        device_create(device_class, NULL, MKDEV(major, 0), DEVICE_NAME);
-#endif
-
-        gpuClass = device_class;
+    for (dev_index = 0; dev_index < device->args.devCount; dev_index++) {
+        if (type == 1)
+            gcmkONERROR(viv_misc_device_node_create(dev_index));
+        else
+            gcmkONERROR(viv_char_device_node_create(dev_index));
     }
-
     /* Success. */
     gcmkFOOTER();
-    return 0;
+    return gcvSTATUS_OK;
 
 OnError:
-    /* Roll back. */
-    if (device_class) {
-        device_destroy(device_class, MKDEV(major, 0));
-        class_destroy(device_class);
-    }
-
-    if (result < 0) {
-        if (type == 1)
-            misc_deregister(&gal_device);
-        else
-            unregister_chrdev(result, DEVICE_NAME);
-    }
-
     if (device) {
         gcmkVERIFY_OK(gckGALDEVICE_Stop(device));
         gcmkVERIFY_OK(gckGALDEVICE_Destroy(device));
     }
 
     gcmkFOOTER();
-    return result;
+    return status;
 }
 
 static void drv_exit(void)
 {
+    gctUINT dev_index;
+
     gcmkHEADER();
 
     if (type == 1) {
-        misc_deregister(&gal_device);
+        for (dev_index = 0; dev_index < galDevice->args.devCount; dev_index++)
+            viv_misc_device_node_destroy(dev_index);
     } else {
-        gcmkASSERT(gpuClass != gcvNULL);
-        device_destroy(gpuClass, MKDEV(major, 0));
-        class_destroy(gpuClass);
+        gcmkASSERT(gpu_class != gcvNULL);
+
+        for (dev_index = 0; dev_index < galDevice->args.devCount; dev_index++)
+            viv_char_device_node_destroy(dev_index);
+
+        class_destroy(gpu_class);
+        gpu_class = gcvNULL;
 
         unregister_chrdev(major, DEVICE_NAME);
     }
@@ -1061,9 +1186,12 @@ static int __devinit viv_dev_probe(struct platform_device *pdev)
 
     platform->params.devices[0] = &pdev->dev;
 
-    platform->params.devices[0]->dma_mask = &dma_mask;
-
     platform->params.devices[0]->coherent_dma_mask = dma_mask;
+
+    if (platform->params.devices[0]->dma_mask)
+        *platform->params.devices[0]->dma_mask = dma_mask;
+    else
+        platform->params.devices[0]->dma_mask = &platform->params.devices[0]->coherent_dma_mask;
 
     if (platform->ops->dmaInit) {
         if (gcmIS_ERROR(platform->ops->dmaInit(platform))) {
@@ -1196,15 +1324,15 @@ static int viv_dev_suspend(struct platform_device *dev, pm_message_t state)
     gceSTATUS status;
     gckGALDEVICE gal_device;
     gckDEVICE device;
-    gctUINT i, devIndex;
+    gctUINT i, dev_index;
 
     gal_device = platform_get_drvdata(dev);
 
     if (!gal_device)
         return -1;
 
-    for (devIndex = 0; devIndex < gal_device->args.devCount; devIndex++) {
-        device = gal_device->devices[devIndex];
+    for (dev_index = 0; dev_index < gal_device->args.devCount; dev_index++) {
+        device = gal_device->devices[dev_index];
 
         for (i = 0; i < gcvCORE_COUNT; i++) {
             if (device->kernels[i] != gcvNULL) {
@@ -1231,7 +1359,7 @@ static int viv_dev_resume(struct platform_device *dev)
     gceSTATUS status;
     gckGALDEVICE gal_device;
     gckDEVICE device;
-    gctUINT i, devIndex;
+    gctUINT i, dev_index;
     gceCHIPPOWERSTATE statesStored;
 
     gal_device = platform_get_drvdata(dev);
@@ -1239,8 +1367,8 @@ static int viv_dev_resume(struct platform_device *dev)
     if (!gal_device)
         return -1;
 
-    for (devIndex = 0; devIndex < gal_device->args.devCount; devIndex++) {
-        device = gal_device->devices[devIndex];
+    for (dev_index = 0; dev_index < gal_device->args.devCount; dev_index++) {
+        device = gal_device->devices[dev_index];
 
         for (i = 0; i < gcvCORE_COUNT; i++) {
             if (device->kernels[i] != gcvNULL) {
@@ -1335,6 +1463,11 @@ static int __init viv_dev_init(void)
     ret = platform_driver_register(&viv_dev_driver);
 
     if (ret) {
+        if (ret == -EPROBE_DEFER) {
+            pr_warn("galcore defering\n");
+            return -EPROBE_DEFER;
+        }
+
         pr_err("galcore: gpu_init() failed to register driver!\n");
         gckPLATFORM_Terminate(platform);
         platform = NULL;

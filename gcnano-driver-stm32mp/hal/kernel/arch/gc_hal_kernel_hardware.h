@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -209,8 +209,8 @@ struct _gckHARDWARE {
     gctUINT32                   minFscaleValue;
     gctUINT                     waitCount;
 
-    gctUINT32                   mcClk;
-    gctUINT32                   shClk;
+    gctUINT64                   mcClk;
+    gctUINT64                   shClk;
 
     gctPOINTER                  pendingEvent;
 
@@ -283,8 +283,8 @@ gceSTATUS
 gckHARDWARE_ExitQueryClock(gckHARDWARE Hardware,
                            gctUINT64 McStart,
                            gctUINT64 ShStart,
-                           gctUINT32 *McClk,
-                           gctUINT32 *ShClk);
+                           gctUINT64 *McClk,
+                           gctUINT64 *ShClk);
 
 gceSTATUS
 gckHARDWARE_QueryFrequency(gckHARDWARE Hardware);

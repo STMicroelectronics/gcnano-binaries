@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -257,6 +257,7 @@ typedef enum _gceSURF_YUV_COLOR_SPACE {
 } gceSURF_YUV_COLOR_SPACE;
 
 typedef enum _gceSURF_YUV_SAMPLE_RANGE {
+    gcvSURF_YUV_UNKNOWN_RANGE,
     gcvSURF_YUV_FULL_RANGE,
     gcvSURF_YUV_NARROW_RANGE,
 } gceSURF_YUV_SAMPLE_RANGE;
@@ -866,8 +867,10 @@ typedef enum _gceMACHINECODE {
     gcvMACHINECODE_GLB25_RELEASE_0,
     gcvMACHINECODE_GLB25_RELEASE_1,
 
-    /* keep it as the last enum */
-    gcvMACHINECODE_COUNT
+    gcvMACHINECODE_COUNT,
+
+    /* flag as dynamic allocation for shader partial replace */
+    gcvSHADER_SRC_PARTIAL_REPLACE,
 } gceMACHINECODE;
 
 typedef enum _gceUNIFORMCVT {
@@ -1373,6 +1376,7 @@ typedef enum _gceFILE_MODE {
     gcvFILE_CREATETEXT,
     gcvFILE_APPENDTEXT,
     gcvFILE_READTEXT,
+    gcvFILE_READWRITE,
 } gceFILE_MODE;
 
 typedef enum _gceFILE_WHENCE {
@@ -2000,6 +2004,9 @@ typedef enum _gceCAPBUF_META_TYPE {
     gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_CONSTANT_ADDRESS_SPACE,
     gcvCAPBUF_META_TYPE_NN_TP_INST_ADDRESS,
     gcvCAPBUF_META_TYPE_LOW32_OF_40BIT_PHY_ADDR,
+    gcvCAPBUF_META_TYPE_GPU_SYNC_CMD,
+    gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_PRINTFADDRESS,
+    gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_MAXPRINTFADDRESS,
     /* Keep it at the end of the list. */
     gcvCAPBUF_META_TYPE_COUNT
 } gceCAPBUF_META_TYPE;
@@ -2009,9 +2016,21 @@ typedef enum _gceCAPBUF_SH_UNIFROM_ARGS {
     gcvCAPBUF_SH_UNIFORM_ARGS_IMAGE_PHYSICAL_ADDRESS,
     gcvCAPBUF_SH_UNIFORM_ARGS_IMAGE_PHYSICAL_ADDRESS_40BIT,
     gcvCAPBUF_SH_UNIFORM_ARGS_LOCAL_ADDRESS_SPACE,
+    gcvCAPBUF_SH_UNIFORM_ARGS_LOCAL_ADDRESS_SPACE_COMBINE,
     gcvCAPBUF_SH_UNIFORM_ARGS_CONSTANT_ADDRESS_SPACE,
     gcvCAPBUF_SH_UNIFORM_ARGS_LOW32_OF_40BIT_PHY_ADDR,
     gcvCAPBUF_SH_UNIFORM_ARGS_LOW_HIGH_40BIT_PHY_ADDR,
+    gcvCAPBUF_SH_UNIFORM_ARGS_PRINTFADDRESS,
+    gcvCAPBUF_SH_UNIFORM_ARGS_MAXPRINTFADDRESS,
+
+    /* add new uniform data source type by generate function, fix above type if need */
+
+    /* uniform data generate by function gcfVX_LoadKernelArgValues */
+    gcvCAPBUF_SH_UNIFORM_ARGS_40BIT_LOADKERNEL_IMAGE_ADDR,
+
+    /* uniform data generate by function gcfVX_LoadKernelArgValues */
+    gcvCAPBUF_SH_UNIFORM_ARGS_40BIT_VIRKERNEL_UNIFORMTABLE,
+
     /* Keep it at the end of the list. */
     gcvCAPBUF_SH_UNIFORM_ARGS_COUNT
 } gceCAPBUF_SH_UNIFORM_ARGS;
@@ -2028,6 +2047,8 @@ typedef enum _gceCAPBUF_SH_UNIFORM_STATE_DATA_TYPE
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_LOW32_OF_40BIT_PHY_ADDR,
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_LOW_HIGH_40BIT_PHY_ADDR_LOW,
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_LOW_HIGH_40BIT_PHY_ADDR_HIGH,
+    gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_PRINTFADDRESS,
+    gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_MAXPRINTFADDRESS,
     /* Keep it at the end of the list. */
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_COUNT
 } gceCAPBUF_SH_UNIFORM_STATE_DATA_TYPE;

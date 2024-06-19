@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -222,11 +222,13 @@ _UpdatePIDInfoListNode(gckOS Os, gckVIDMEM_NODE Node,
                        gcuVIDMEM_NODE_PTR VideoNode,
                        gctUINT32 ProcessID, gctUINT32 Behavier)
 {
+    gceSTATUS status = gcvSTATUS_OK;
 #if gcdENABLE_VIDEO_MEMORY_TRACE
     gckVIDMEM_PIDINFO pid_info;
     gctUINT32 pid = 0;
     gctUINT32 oldValue = 0;
     gckVIDMEM_PIDINFO pre_pid_info;
+    gctBOOL acquired = gcvFALSE;
 
     switch (Behavier) {
     case PIDINFO_LIST_NODE_Const:
@@ -246,7 +248,8 @@ _UpdatePIDInfoListNode(gckOS Os, gckVIDMEM_NODE Node,
         _TraceGpuMem(Os, Node->pidInfo->pid, VideoNode);
         break;
     case PIDINFO_LIST_NODE_Ref:
-        gcmkVERIFY_OK(gckOS_AcquireMutex(Os, Node->mutex, gcvINFINITE));
+        gcmkONERROR(gckOS_AcquireMutex(Os, Node->mutex, gcvINFINITE));
+        acquired = gcvTRUE;
 
         pid_info = Node->pidInfo;
 
@@ -281,6 +284,7 @@ _UpdatePIDInfoListNode(gckOS Os, gckVIDMEM_NODE Node,
             _TraceGpuMem(Os, pid, VideoNode);
         }
         gcmkVERIFY_OK(gckOS_ReleaseMutex(Os, Node->mutex));
+        acquired = gcvFALSE;
         break;
     case PIDINFO_LIST_NODE_Deref:
         if (ProcessID == 0)
@@ -288,7 +292,8 @@ _UpdatePIDInfoListNode(gckOS Os, gckVIDMEM_NODE Node,
         else
             pid = ProcessID;
 
-        gcmkVERIFY_OK(gckOS_AcquireMutex(Os, Node->mutex, gcvINFINITE));
+        gcmkONERROR(gckOS_AcquireMutex(Os, Node->mutex, gcvINFINITE));
+        acquired = gcvTRUE;
         pid_info = Node->pidInfo;
         pre_pid_info = Node->pidInfo;
 
@@ -319,9 +324,11 @@ _UpdatePIDInfoListNode(gckOS Os, gckVIDMEM_NODE Node,
         }
 
         gcmkVERIFY_OK(gckOS_ReleaseMutex(Os, Node->mutex));
+        acquired = gcvFALSE;
         break;
     case PIDINFO_LIST_NODE_Clean:
-        gcmkVERIFY_OK(gckOS_AcquireMutex(Os, Node->mutex, gcvINFINITE));
+        gcmkONERROR(gckOS_AcquireMutex(Os, Node->mutex, gcvINFINITE));
+        acquired = gcvTRUE;
         while (Node->pidInfo) {
             gctINT32 ref = 0;
 
@@ -334,10 +341,17 @@ _UpdatePIDInfoListNode(gckOS Os, gckVIDMEM_NODE Node,
             gcmkOS_SAFE_FREE(Os, pid_info);
         }
         gcmkVERIFY_OK(gckOS_ReleaseMutex(Os, Node->mutex));
+        acquired = gcvFALSE;
         break;
     }
+
+    status = gcvSTATUS_OK;
+
+OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Os, Node->mutex));
 #endif
-    return gcvSTATUS_OK;
+    return status;
 }
 
 /******************************************************************************
@@ -621,7 +635,10 @@ gckVIDMEM_Destroy(gckVIDMEM Memory)
     }
 
     /* Free the mutex. */
-    gcmkVERIFY_OK(gckOS_DeleteMutex(Memory->os, Memory->mutex));
+    if (Memory->mutex) {
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Memory->os, Memory->mutex));
+        Memory->mutex = gcvNULL;
+    }
 
     /* Mark the object as unknown. */
     Memory->object.type = gcvOBJ_UNKNOWN;
@@ -948,6 +965,7 @@ gckVIDMEM_AllocateLinear(gckKERNEL Kernel, gckVIDMEM Memory,
 
     /* Release the mutex. */
     gcmkVERIFY_OK(gckOS_ReleaseMutex(Memory->os, Memory->mutex));
+    acquired = gcvFALSE;
 
     gckOS_QueryOption(Memory->os, "allMapInOne", &mappingInOne);
     if (!mappingInOne) {
@@ -1726,7 +1744,10 @@ gckVIDMEM_BLOCK_Destroy(gckKERNEL Kernel, gckVIDMEM_BLOCK VidMemBlock)
     }
 
     /* Free the mutex. */
-    gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, VidMemBlock->mutex));
+    if (VidMemBlock->mutex) {
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, VidMemBlock->mutex));
+        VidMemBlock->mutex = gcvNULL;
+    }
 
     if (VidMemBlock->node.VirtualChunk.next) {
         /* Free the virtual chunk. */
@@ -2108,6 +2129,7 @@ gckVIDMEM_Free(gckKERNEL Kernel, gcuVIDMEM_NODE_PTR Node)
 
             /* Release the mutex. */
             gcmkVERIFY_OK(gckOS_ReleaseMutex(os, vidMemBlock->mutex));
+            vbMutexAcquired = gcvFALSE;
 
             /* Only free the vidmem block when all the chunks are freed. */
             if (_IsVidMemBlockFree(vidMemBlock)) {
@@ -2231,6 +2253,7 @@ gckVIDMEM_Lock(gckKERNEL Kernel,
         default:
             gcmkASSERT(Node->VidMem.pool == gcvPOOL_SYSTEM);
             /* FALLTHRU */
+            gcmkFALLTHRU;
         case gcvPOOL_SYSTEM:
             address = Kernel->contiguousBaseAddresses[Kernel->device->memIndex] + offset;
             break;
@@ -2255,7 +2278,7 @@ gckVIDMEM_LockVirtual(gckKERNEL Kernel, gcuVIDMEM_NODE_PTR Node, gctADDRESS *Add
 {
     gceSTATUS status;
     gctPHYS_ADDR_T physicalAddress;
-    gctBOOL locked = gcvFALSE;
+    gctBOOL locked = gcvFALSE, acquired = gcvFALSE;
     gckOS os;
     gctUINT32 index = 0;
     gceHARDWARE_TYPE hwType;
@@ -2308,14 +2331,24 @@ gckVIDMEM_LockVirtual(gckKERNEL Kernel, gcuVIDMEM_NODE_PTR Node, gctADDRESS *Add
     if (Kernel->processPageTable) {
         gcsLISTHEAD_PTR pos;
 
+        gcmkONERROR(gckOS_AcquireMutex(mmu->os,
+                                         mmu->nodeListMutex,
+                                         gcvINFINITE));
+        acquired = gcvTRUE;
+
         gcmkLIST_FOR_EACH(pos, &mmu->nodeList) {
             node = (gcuVIDMEM_NODE_PTR)gcmCONTAINEROF(pos, struct _gcsVIDMEM_NODE_VIDMEM, lockLink);
 
             if (node->VidMem.id == Node->VidMem.id) {
                 lockCount = node->VidMem.lockeds[index]++;
+                Node->VidMem.addresses[index] = node->VidMem.addresses[index];
                 break;
             }
         }
+
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(mmu->os, mmu->nodeListMutex));
+        acquired = gcvFALSE;
+
     } else
         lockCount = Node->VidMem.lockeds[index]++;
 
@@ -2426,6 +2459,9 @@ OnError:
         else
             Node->VidMem.lockeds[index]--;
     }
+
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(mmu->os, mmu->nodeListMutex));
 
     gcmkFOOTER();
     return status;
@@ -2568,6 +2604,7 @@ gckVIDMEM_UnlockVirtual(gckKERNEL Kernel,
     gckMMU mmu = Mmu;
     gcuVIDMEM_NODE_PTR node = gcvNULL;
     gctINT32 lockCount = 0;
+    gctBOOL acquired = gcvFALSE;
 
     gcmkHEADER_ARG("Node=%p *Asynchroneous=%d",
                    Node, gcmOPT_VALUE(Asynchroneous));
@@ -2599,16 +2636,26 @@ gckVIDMEM_UnlockVirtual(gckKERNEL Kernel,
 
             index = 0;
 
+            gcmkONERROR(gckOS_AcquireMutex(mmu->os,
+                                             mmu->nodeListMutex,
+                                             gcvINFINITE));
+            acquired = gcvTRUE;
+
             gcmkLIST_FOR_EACH(pos, &mmu->nodeList) {
                 node = (gcuVIDMEM_NODE_PTR)gcmCONTAINEROF(pos, struct _gcsVIDMEM_NODE_VIDMEM, lockLink);
                 if (node->VidMem.id == Node->VidMem.id) {
-                    if (!node->VidMem.lockeds[index])
+                    if (!node->VidMem.lockeds[index]) {
+                        gcmkVERIFY_OK(gckOS_ReleaseMutex(mmu->os, mmu->nodeListMutex));
                         gcmkONERROR(gcvSTATUS_MEMORY_UNLOCKED);
+                    }
 
                     lockCount = --node->VidMem.lockeds[index];
                     break;
                 }
             }
+
+            gcmkVERIFY_OK(gckOS_ReleaseMutex(mmu->os, mmu->nodeListMutex));
+            acquired = gcvFALSE;
 
             if (pos == &mmu->nodeList)
                 gcmkONERROR(gcvSTATUS_MEMORY_UNLOCKED);
@@ -2673,6 +2720,9 @@ gckVIDMEM_UnlockVirtual(gckKERNEL Kernel,
     return gcvSTATUS_OK;
 
 OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(mmu->os, mmu->nodeListMutex));
+
     gcmkFOOTER();
     return status;
 }
@@ -2828,7 +2878,7 @@ gckVIDMEM_HANDLE_Reference(gckKERNEL Kernel, gctUINT32 ProcessID, gctUINT32 Hand
     gcmkONERROR(gckKERNEL_FindHandleDatabase(Kernel, ProcessID,
                                             &database, &mutex));
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
     acquired = gcvTRUE;
 
     /* Translate handle to gckVIDMEM_HANDLE object. */
@@ -2867,7 +2917,7 @@ gckVIDMEM_HANDLE_Dereference(gckKERNEL Kernel, gctUINT32 ProcessID, gctUINT32 Ha
     gcmkONERROR(gckKERNEL_FindHandleDatabase(Kernel, ProcessID,
                                             &handleDatabase, &mutex));
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
     acquired = gcvTRUE;
 
     /* Translate handle to gckVIDMEM_HANDLE. */
@@ -2918,7 +2968,7 @@ gckVIDMEM_HANDLE_Lookup(gckKERNEL Kernel, gctUINT32 ProcessID,
     gcmkONERROR(gckKERNEL_FindHandleDatabase(Kernel, ProcessID,
                                             &database, &mutex));
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
     acquired = gcvTRUE;
 
     gcmkONERROR(gckKERNEL_QueryIntegerId(database, Handle,
@@ -2959,7 +3009,7 @@ gckVIDMEM_HANDLE_Lookup2(gckKERNEL Kernel, gcsDATABASE_PTR Database,
     database = Database->handleDatabase;
     mutex = Database->handleDatabaseMutex;
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
     acquired = gcvTRUE;
 
     gcmkONERROR(gckKERNEL_QueryIntegerId(database, Handle,
@@ -2993,6 +3043,7 @@ gckVIDMEM_NODE_Construct(gckKERNEL Kernel, gcuVIDMEM_NODE_PTR VideoNode,
     gctPOINTER pointer = gcvNULL;
     gckOS os = Kernel->os;
     gctUINT i;
+    gctBOOL acquired = gcvFALSE;
 
     /* Construct a node. */
     gcmkONERROR(gckOS_Allocate(os, gcmSIZEOF(gcsVIDMEM_NODE), &pointer));
@@ -3028,21 +3079,27 @@ gckVIDMEM_NODE_Construct(gckKERNEL Kernel, gcuVIDMEM_NODE_PTR VideoNode,
     /* Reference is 1 by default . */
     gckOS_AtomSet(os, node->reference, 1);
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os,
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os,
                                      Kernel->db->videoMemListMutex,
                                      gcvINFINITE));
+    acquired = gcvTRUE;
 
     /* Add into video memory node list. */
     gcsLIST_Add(&node->link, &Kernel->db->videoMemList);
 
     gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os,
                                      Kernel->db->videoMemListMutex));
+    acquired = gcvFALSE;
 
     *NodeObject = node;
 
     return gcvSTATUS_OK;
 
 OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os,
+                                         Kernel->db->videoMemListMutex));
+
     if (node != gcvNULL) {
         if (node->mutex)
             gcmkVERIFY_OK(gckOS_DeleteMutex(os, node->mutex));
@@ -3236,6 +3293,20 @@ gckVIDMEM_NODE_AllocateVirtual(gckKERNEL Kernel, gcePOOL Pool,
     gcmkONERROR(gckVIDMEM_NODE_Construct(Kernel, node, Type,
                                          Pool, Flag, &nodeObject));
 
+#if gcdENABLE_VIDEO_MEMORY_MIRROR
+    if (Flag & gcvALLOC_FLAG_WITH_MIRROR) {
+        if (Flag & gcvALLOC_FLAG_DYNAMIC_ALLOC_LOCAL)
+            nodeObject->mirror.type = gcvMIRROR_TYPE_SYSTEM_MEMORY_MIRROR;
+
+#if gcdSTATIC_VIDEO_MEMORY_MIRROR
+        gcmkONERROR(_AllocateVideoMemoryMirror(Kernel, nodeObject,
+                                               nodeObject->mirror.type));
+# else
+        nodeObject->mirror.refCount = 0;
+# endif
+    }
+#endif
+
     *Bytes = bytes;
     *NodeObject = nodeObject;
 
@@ -3316,11 +3387,14 @@ gckVIDMEM_NODE_DereferenceEx(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject, gctUIN
     gctPOINTER database = Kernel->db->nameDatabase;
     gctPOINTER mutex = Kernel->db->nameDatabaseMutex;
     gctUINT i;
+    gceSTATUS status;
+    gctBOOL dbMutexAcquired = gcvFALSE, listMutexAcquired = gcvFALSE;
 
     gcmkHEADER_ARG("Kernel=%p NodeObject=%p", Kernel, NodeObject);
     gcmkVERIFY_ARGUMENT(NodeObject != gcvNULL);
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
+    dbMutexAcquired = gcvTRUE;
 
     gcmkVERIFY_OK(gckOS_AtomDecrement(Kernel->os,
                                       NodeObject->reference,
@@ -3332,20 +3406,23 @@ gckVIDMEM_NODE_DereferenceEx(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject, gctUIN
     }
 
     gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, mutex));
+    dbMutexAcquired = gcvFALSE;
 
     _UpdatePIDInfoListNode(Kernel->os, NodeObject, NodeObject->node,
                            ProcessID, PIDINFO_LIST_NODE_Deref);
 
     if (oldValue == 1) {
-        gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os,
+        gcmkONERROR(gckOS_AcquireMutex(Kernel->os,
                                          Kernel->db->videoMemListMutex,
                                          gcvINFINITE));
+        listMutexAcquired = gcvTRUE;
 
         /* Remove from video memory node list. */
         gcsLIST_Del(&NodeObject->link);
 
         gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os,
                                          Kernel->db->videoMemListMutex));
+        listMutexAcquired = gcvFALSE;
 
         _UpdatePIDInfoListNode(Kernel->os, NodeObject, NodeObject->node,
                                ProcessID, PIDINFO_LIST_NODE_Clean);
@@ -3364,7 +3441,10 @@ gckVIDMEM_NODE_DereferenceEx(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject, gctUIN
 
         gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, NodeObject->reference));
 
-        gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, NodeObject->mutex));
+        if (NodeObject->mutex) {
+            gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, NodeObject->mutex));
+            NodeObject->mutex = gcvNULL;
+        }
 
         for (i = 0; i < gcvENGINE_GPU_ENGINE_COUNT; i++) {
             if (NodeObject->sync[i].signal != gcvNULL) {
@@ -3384,6 +3464,16 @@ gckVIDMEM_NODE_DereferenceEx(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject, gctUIN
 
     gcmkFOOTER_NO();
     return gcvSTATUS_OK;
+
+OnError:
+    if (listMutexAcquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os,
+                                         Kernel->db->videoMemListMutex));
+    if (dbMutexAcquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, mutex));
+
+    gcmkFOOTER();
+    return status;
 }
 
 gceSTATUS
@@ -3912,15 +4002,11 @@ gckVIDMEM_NODE_UnlockCPU(gckKERNEL Kernel,
 #else
             if (!Defer) {
                 /* Unmap the video memory. */
-                if (node->VidMem.logical != gcvNULL) {
-                    gckKERNEL_UnmapVideoMemory(Kernel, node->VidMem.pool,
-                                               node->VidMem.physical,
-                                               node->VidMem.logical,
-                                               0,
-                                               node->VidMem.bytes);
-
-                    node->VidMem.logical = gcvNULL;
-                }
+                gckKERNEL_UnmapVideoMemory(Kernel, node->VidMem.pool,
+                                           node->VidMem.physical,
+                                           node->VidMem.logical,
+                                           0,
+                                           node->VidMem.bytes);
             }
 #endif
         } else {
@@ -3969,6 +4055,7 @@ gckVIDMEM_NODE_UnlockCPU(gckKERNEL Kernel,
     }
 
     gcmkVERIFY_OK(gckOS_ReleaseMutex(os, NodeObject->mutex));
+    acquired = gcvFALSE;
 
 #if gcdENABLE_VIDEO_MEMORY_MIRROR && !gcdSTATIC_VIDEO_MEMORY_MIRROR
     /* allocate virtual mem for dma */
@@ -4828,6 +4915,7 @@ gckVIDMEM_NODE_Find(gckKERNEL Kernel, gctADDRESS Address,
     gcsLISTHEAD_PTR pos;
     gctUINT32 index;
     gceHARDWARE_TYPE hwType;
+    gctBOOL acquired = gcvFALSE;
 
     gcmkVERIFY_OK(gckKERNEL_GetHardwareType(Kernel, &hwType));
 
@@ -4842,9 +4930,10 @@ gckVIDMEM_NODE_Find(gckKERNEL Kernel, gctADDRESS Address,
     if (Kernel->processPageTable)
         index = 0;
 
-    gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os,
+    gcmkONERROR(gckOS_AcquireMutex(Kernel->os,
                                      Kernel->db->videoMemListMutex,
                                      gcvINFINITE));
+    acquired = gcvTRUE;
 
     gcmkLIST_FOR_EACH(pos, &Kernel->db->videoMemList)
     {
@@ -4906,7 +4995,9 @@ gckVIDMEM_NODE_Find(gckKERNEL Kernel, gctADDRESS Address,
         }
     }
 
-    gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->db->videoMemListMutex));
+OnError:
+    if (acquired)
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->db->videoMemListMutex));
 
     return status;
 }

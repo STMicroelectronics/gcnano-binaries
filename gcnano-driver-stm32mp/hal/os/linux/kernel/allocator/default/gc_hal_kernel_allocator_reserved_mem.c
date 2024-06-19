@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -63,6 +63,7 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/ioport.h>
+#include <linux/swiotlb.h>
 
 #define _GC_OBJ_ZONE gcvZONE_OS
 
@@ -145,6 +146,8 @@ reserved_mem_attach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL 
     struct reserved_mem *res;
     struct resource *region  = NULL;
     gctPHYS_ADDR_T gpu_end = 0;
+    gctBOOL acquiredMutex = gcvFALSE;
+    gceSTATUS status = gcvSTATUS_OK;
 
     if (Desc == gcvNULL)
         return gcvSTATUS_INVALID_ARGUMENT;
@@ -177,9 +180,14 @@ reserved_mem_attach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL 
             res->release = 1;
         }
 
-        mutex_lock(&alloc->lock);
+        gcmkONERROR(gckOS_AcquireMutex(Allocator->os, &alloc->lock, gcvINFINITE));
+        acquiredMutex = gcvTRUE;
+
         list_add(&res->link, &alloc->region);
-        mutex_unlock(&alloc->lock);
+
+        gcmkONERROR(gckOS_ReleaseMutex(Allocator->os, &alloc->lock));
+        acquiredMutex = gcvFALSE;
+
     }
 
     Mdl->priv = res;
@@ -191,6 +199,12 @@ reserved_mem_attach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL 
         Allocator->capability |= gcvALLOC_FLAG_4GB_ADDR;
 
     return gcvSTATUS_OK;
+
+OnError:
+    if (acquiredMutex)
+        gckOS_ReleaseMutex(Allocator->os, &alloc->lock);
+
+    return status;
 }
 
 static void
@@ -198,18 +212,29 @@ reserved_mem_detach(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
 {
     struct reserved_mem_alloc *alloc = Allocator->privateData;
     struct reserved_mem *res = Mdl->priv;
+    gceSTATUS status = gcvSTATUS_OK;
+    gctBOOL acquiredMutex = gcvFALSE;
 
     if (res->root) {
         /* unlink from region list. */
-        mutex_lock(&alloc->lock);
+        gcmkONERROR(gckOS_AcquireMutex(Allocator->os, &alloc->lock, gcvINFINITE));
+        acquiredMutex = gcvTRUE;
+
         list_del_init(&res->link);
-        mutex_unlock(&alloc->lock);
+
+        gcmkONERROR(gckOS_ReleaseMutex(Allocator->os, &alloc->lock));
+        acquiredMutex = gcvFALSE;
 
         if (res->release)
             release_mem_region(res->start, res->size);
     }
 
     kfree(res);
+
+OnError:
+    if (acquiredMutex)
+        gckOS_ReleaseMutex(Allocator->os, &alloc->lock);
+
 }
 
 static gceSTATUS
@@ -227,7 +252,11 @@ reserved_mem_mmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
     pfn = (res->start >> PAGE_SHIFT) + skipPages;
 
     /* Make this mapping non-cached. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+    vm_flags_set(vma, gcdVM_FLAGS);
+#else
     vma->vm_flags |= gcdVM_FLAGS;
+#endif
 
 #if gcdENABLE_BUFFERABLE_VIDEO_MEMORY
     vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
@@ -400,7 +429,7 @@ reserved_mem_cache_op(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset,
 
 static gceSTATUS
 reserved_mem_get_physical(gckALLOCATOR Allocator, PLINUX_MDL Mdl,
-                          gctUINT32 Offset, gctPHYS_ADDR_T *Physical)
+                          unsigned long Offset, gctPHYS_ADDR_T *Physical)
 {
     struct reserved_mem *res = Mdl->priv;
     *Physical = res->start + Offset;
@@ -416,6 +445,12 @@ reserved_mem_GetSGT(gckALLOCATOR Allocator, PLINUX_MDL Mdl,
     struct sg_table *sgt = NULL;
     struct reserved_mem *res = Mdl->priv;
     gceSTATUS status = gcvSTATUS_OK;
+    struct scatterlist *sg = NULL;
+    gctUINT32 offset_in_page = 0;
+    unsigned long mem_base = res->start + Offset;
+    gctSIZE_T sz = 0;
+    gctSIZE_T left = Bytes;
+    gctSIZE_T chunk_size = IO_TLB_SEGSIZE * (1 << IO_TLB_SHIFT);
 
     gcmkASSERT(Offset + Bytes <= Mdl->numPages << PAGE_SHIFT);
 
@@ -423,12 +458,35 @@ reserved_mem_GetSGT(gckALLOCATOR Allocator, PLINUX_MDL Mdl,
     if (!sgt)
         gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
 
-    page = pfn_to_page(res->start >> PAGE_SHIFT);
-
-    if (sg_alloc_table(sgt, 1, GFP_KERNEL))
+    if (sg_alloc_table(sgt, (Bytes + chunk_size - 1) / chunk_size, GFP_KERNEL))
         gcmkONERROR(gcvSTATUS_GENERIC_IO);
 
-    sg_set_page(sgt->sgl, page, PAGE_ALIGN(Bytes), Offset);
+    sg = sgt->sgl;
+    while (left) {
+        if (left > chunk_size)
+            sz = chunk_size;
+        else
+            sz = left;
+
+        left -= sz;
+
+        page = pfn_to_page(mem_base >> PAGE_SHIFT);
+        offset_in_page = (gctUINT32)mem_base & (PAGE_SIZE - 1);
+
+        sg_set_page(sg, page, sz, offset_in_page);
+
+        mem_base += sz;
+        sg = sg_next(sg);
+        if (!sg)
+            break;
+    }
+
+    if (left)
+        pr_warn("Bytes is mismatch with sgt size, start: 0x%llx, left: 0x%llx, Offset: 0x%llx, Bytes: 0x%llx\n",
+                (gctUINT64)res->start,
+                (gctUINT64)left,
+                (gctUINT64)Offset,
+                (gctUINT64)Bytes);
 
     *SGT = (gctPOINTER)sgt;
 
@@ -444,6 +502,7 @@ reserved_mem_dtor(gcsALLOCATOR *Allocator)
 {
     reserved_mem_debugfs_cleanup(Allocator);
 
+    gckOS_ZeroMemory(Allocator->privateData, sizeof(struct reserved_mem_alloc));
     kfree(Allocator->privateData);
 
     kfree(Allocator);

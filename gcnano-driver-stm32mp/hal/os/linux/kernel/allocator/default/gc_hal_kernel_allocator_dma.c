@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -521,7 +521,7 @@ _DmaCache(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset,
 
 static gceSTATUS
 _DmaPhysical(gckALLOCATOR Allocator, PLINUX_MDL Mdl,
-             gctUINT32 Offset, gctPHYS_ADDR_T *Physical)
+             unsigned long Offset, gctPHYS_ADDR_T *Physical)
 {
     struct mdl_dma_priv *mdlPriv = (struct mdl_dma_priv *)Mdl->priv;
 

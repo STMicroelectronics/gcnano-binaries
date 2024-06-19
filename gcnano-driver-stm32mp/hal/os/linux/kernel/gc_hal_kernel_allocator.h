@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -287,7 +287,7 @@ typedef struct _gcsALLOCATOR_OPERATIONS {
      **      PLINUX_MDL Mdl
      **          Pointer to a Mdl object.
      **
-     **      gctUINT32 Offset
+     **      unsigned long Offset
      **          Offset in this memory region.
      **
      ** OUTPUT:
@@ -296,7 +296,7 @@ typedef struct _gcsALLOCATOR_OPERATIONS {
      **
      */
     gceSTATUS
-    (*Physical)(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctUINT32 Offset, gctPHYS_ADDR_T * Physical);
+    (*Physical)(gckALLOCATOR Allocator, PLINUX_MDL Mdl, unsigned long Offset, gctPHYS_ADDR_T * Physical);
 
     /**************************************************************************
      **

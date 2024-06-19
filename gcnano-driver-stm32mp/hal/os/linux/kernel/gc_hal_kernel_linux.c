@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -304,6 +304,7 @@ gckKERNEL_DestroyProcessReservedUserMap(gckKERNEL Kernel, gctUINT32 Pid)
     gctINT i;
     PLINUX_MDL mdl;
     PLINUX_MDL_MAP mdlMap = gcvNULL;
+    gctBOOL acquiredMutex = gcvFALSE;
 
     gcmkHEADER_ARG("Logical=%p pid=%u", Logical, Pid);
     /* Verify the arguments. */
@@ -316,21 +317,31 @@ gckKERNEL_DestroyProcessReservedUserMap(gckKERNEL Kernel, gctUINT32 Pid)
     physHandle = (PLINUX_MDL)galDevice->internalPhysical;
     bytes = galDevice->internalSize;
 
-    if (bytes) {
+    if (bytes && physHandle) {
         mdl = physHandle;
+        gcmkONERROR(gckOS_AcquireMutex(Kernel->os, &mdl->mapsMutex, gcvINFINITE));
+        acquiredMutex = gcvTRUE;
         mdlMap = FindMdlMap(mdl, Pid);
+        gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex));
+        acquiredMutex = gcvFALSE;
         if (mdlMap)
             gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
     }
 
-    physHandle = (PLINUX_MDL)device->externalPhysical;
-    bytes = device->externalSize;
+    for (i = 0; i < gcdLOCAL_MEMORY_COUNT; i++) {
+        physHandle = (PLINUX_MDL)galDevice->externalPhysical[i];
+        bytes = galDevice->externalSize[i];
 
-    if (bytes) {
-        mdl = physHandle;
-        mdlMap = FindMdlMap(mdl, Pid);
-        if (mdlMap)
-            gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
+        if (bytes && physHandle) {
+            mdl = physHandle;
+            gcmkONERROR(gckOS_AcquireMutex(Kernel->os, &mdl->mapsMutex, gcvINFINITE));
+            acquiredMutex = gcvTRUE;
+            mdlMap = FindMdlMap(mdl, Pid);
+            gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex));
+            acquiredMutex = gcvFALSE;
+            if (mdlMap)
+                gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
+        }
     }
 
 #if !gcdCAPTURE_ONLY_MODE
@@ -339,12 +350,32 @@ gckKERNEL_DestroyProcessReservedUserMap(gckKERNEL Kernel, gctUINT32 Pid)
         physHandle = (PLINUX_MDL)device->contiguousPhysicals[i];
         bytes = device->contiguousSizes[i];
 
-        if (bytes) {
+        if (bytes && physHandle) {
             mdl = physHandle;
+            gcmkONERROR(gckOS_AcquireMutex(Kernel->os, &mdl->mapsMutex, gcvINFINITE));
+            acquiredMutex = gcvTRUE;
             mdlMap = FindMdlMap(mdl, Pid);
+            gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex));
+            acquiredMutex = gcvFALSE;
             if (mdlMap)
                 gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
         }
+    }
+#endif
+
+#if gcdENABLE_40BIT_VA
+    physHandle = (PLINUX_MDL)galDevice->lowContiguousPhysical;
+    bytes = galDevice->lowContiguousSize;
+
+    if (bytes && physHandle) {
+        mdl = physHandle;
+        gcmkONERROR(gckOS_AcquireMutex(Kernel->os, &mdl->mapsMutex, gcvINFINITE));
+        acquiredMutex = gcvTRUE;
+        mdlMap = FindMdlMap(mdl, Pid);
+        gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex));
+        acquiredMutex = gcvFALSE;
+        if (mdlMap)
+            gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
     }
 #endif
 
@@ -352,9 +383,13 @@ gckKERNEL_DestroyProcessReservedUserMap(gckKERNEL Kernel, gctUINT32 Pid)
     for (i = 0; i < gcvSRAM_EXT_COUNT; i++) {
         physHandle = (PLINUX_MDL)device->extSRAMPhysicals[i];
         bytes = device->extSRAMSizes[i];
-        if (bytes) {
+        if (bytes && physHandle) {
             mdl = physHandle;
+            gcmkONERROR(gckOS_AcquireMutex(Kernel->os, &mdl->mapsMutex, gcvINFINITE));
+            acquiredMutex = gcvTRUE;
             mdlMap = FindMdlMap(mdl, Pid);
+            gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex));
+            acquiredMutex = gcvFALSE;
             if (mdlMap)
                 gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
         }
@@ -365,9 +400,13 @@ gckKERNEL_DestroyProcessReservedUserMap(gckKERNEL Kernel, gctUINT32 Pid)
         if (!Kernel->sRAMPhysFaked[i]) {
             physHandle = (PLINUX_MDL)Kernel->sRAMPhysical[i];
             bytes = Kernel->sRAMSizes[i];
-            if (bytes) {
+            if (bytes && physHandle) {
                 mdl = physHandle;
+                gcmkONERROR(gckOS_AcquireMutex(Kernel->os, &mdl->mapsMutex, gcvINFINITE));
+                acquiredMutex = gcvTRUE;
                 mdlMap = FindMdlMap(mdl, Pid);
+                gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex));
+                acquiredMutex = gcvFALSE;
                 if (mdlMap)
                     gcmkONERROR(gckOS_UnmapMemoryEx(Kernel->os, physHandle, bytes, Logical, Pid));
             }
@@ -376,6 +415,9 @@ gckKERNEL_DestroyProcessReservedUserMap(gckKERNEL Kernel, gctUINT32 Pid)
 
 OnError:
     /* Retunn the status. */
+    if (acquiredMutex)
+        gckOS_ReleaseMutex(Kernel->os, &mdl->mapsMutex);
+
     gcmkFOOTER_NO();
     return status;
 }
@@ -675,6 +717,7 @@ gckKERNEL_SyncVideoMemoryMirror(gckKERNEL Kernel,
 {
     gceSTATUS status = gcvSTATUS_NOT_SUPPORTED;
     gcsPLATFORM *platform;
+    gctSIZE_T size;
 
     gcmkHEADER();
 
@@ -682,6 +725,12 @@ gckKERNEL_SyncVideoMemoryMirror(gckKERNEL Kernel,
     gcmkVERIFY_OBJECT(Kernel, gcvOBJ_KERNEL);
 
     if (!Node->mirror.mirrorNode) {
+        gcmkFOOTER();
+        return gcvSTATUS_INVALID_ARGUMENT;
+    }
+
+    gckVIDMEM_NODE_GetSize(Kernel, Node, &size);
+    if (Offset + Bytes > size) {
         gcmkFOOTER();
         return gcvSTATUS_INVALID_ARGUMENT;
     }

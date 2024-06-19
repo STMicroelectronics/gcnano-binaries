@@ -2,7 +2,7 @@
 #
 #    The MIT License (MIT)
 #
-#    Copyright (c) 2014 - 2022 Vivante Corporation
+#    Copyright (c) 2014 - 2023 Vivante Corporation
 #
 #    Permission is hereby granted, free of charge, to any person obtaining a
 #    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 #
 #    The GPL License (GPL)
 #
-#    Copyright (C) 2014 - 2022 Vivante Corporation
+#    Copyright (C) 2014 - 2023 Vivante Corporation
 #
 #    This program is free software; you can redistribute it and/or
 #    modify it under the terms of the GNU General Public License
@@ -82,6 +82,7 @@ SOC_PLATFORM_OBJS ?= $(SOC_PLATFORM_LOCATION)/gc_hal_kernel_platform_$(soc_board
 -include $(AQROOT)/$(SOC_PLATFORM_LOCATION)/gc_hal_kernel_platform_$(soc_board).config
 
 ifeq ($(CONFIG_KASAN),)
+EXTRA_CFLAGS += -Werror -Wno-implicit-fallthrough
 ccflags-$(CONFIG_WERROR) += -Werror
 endif
 
@@ -118,7 +119,6 @@ OBJS += $(HAL_KERNEL_DIR)/gc_hal_kernel.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_mmu.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_video_memory.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_power.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_security_v1.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_preemption.o
 
 OBJS += $(ARCH_KERNEL_DIR)/gc_hal_kernel_context.o \
@@ -135,13 +135,13 @@ endif
 
 
 ifneq ($(CONFIG_SYNC),)
-ccflags-y += -Idrivers/staging/android
-ccflags-y += -DgcdLINUX_SYNC_FILE=1
+EXTRA_CFLAGS += -Idrivers/staging/android
+EXTRA_CFLAGS += -DgcdLINUX_SYNC_FILE=1
 
 OBJS += $(OS_KERNEL_DIR)/gc_hal_kernel_sync.o
 else
   ifneq ($(CONFIG_SYNC_FILE),)
-  ccflags-y += -DgcdLINUX_SYNC_FILE=1
+  EXTRA_CFLAGS += -DgcdLINUX_SYNC_FILE=1
   OBJS += $(OS_KERNEL_DIR)/gc_hal_kernel_sync.o
   endif
 endif
@@ -155,11 +155,14 @@ ifneq ($(CUSTOMER_ALLOCATOR_OBJS),)
 OBJS += $(CUSTOMER_ALLOCATOR_OBJS)
 endif
 
+ifeq ($(ENABLE_TRUST_APPLICATION),1)
 OBJS += $(OS_KERNEL_DIR)/gc_hal_kernel_security_channel_emulator.o \
+        $(HAL_KERNEL_DIR)/gc_hal_kernel_security_v1.o \
         $(TA_DIR)/gc_hal_ta.o \
         $(TA_DIR)/gc_hal_ta_hardware.o \
         $(TA_DIR)/gc_hal_ta_mmu.o \
         $(TA_DIR)/os/emulator/gc_hal_ta_emulator.o
+endif
 
 ifeq ($(KERNELRELEASE),)
 
@@ -167,7 +170,7 @@ ifeq ($(KERNELRELEASE),)
 
 # Define targets.
 all:
-	@$(MAKE) V=$(V) ARCH=$(ARCH_TYPE) -C $(KERNEL_DIR) M=$(CURDIR) modules
+	@$(MAKE) V=$(V) ARCH=$(ARCH_TYPE) -C $(KERNEL_DIR) M=`pwd` modules
 
 clean:
 	@rm -rf $(OBJS)
@@ -248,10 +251,10 @@ EXTRA_CFLAGS += -DgcdENABLE_VG=0
 ifeq ($(USE_BANK_ALIGNMENT),1)
     EXTRA_CFLAGS += -DgcdENABLE_BANK_ALIGNMENT=1
     ifneq ($(BANK_BIT_START),0)
-	        ifneq ($(BANK_BIT_END),0)
-	            EXTRA_CFLAGS += -DgcdBANK_BIT_START=$(BANK_BIT_START)
-	            EXTRA_CFLAGS += -DgcdBANK_BIT_END=$(BANK_BIT_END)
-	        endif
+        ifneq ($(BANK_BIT_END),0)
+            EXTRA_CFLAGS += -DgcdBANK_BIT_START=$(BANK_BIT_START)
+            EXTRA_CFLAGS += -DgcdBANK_BIT_END=$(BANK_BIT_END)
+        endif
     endif
 
     ifneq ($(BANK_CHANNEL_BIT),0)
@@ -281,8 +284,11 @@ EXTRA_CFLAGS += -I$(AQROOT)/hal/kernel/arch
 EXTRA_CFLAGS += -I$(AQROOT)/hal/kernel/inc
 EXTRA_CFLAGS += -I$(AQROOT)/hal/os/linux/kernel
 EXTRA_CFLAGS += -I$(AQROOT)/$(ALLOCATOR_ARRAY_H_LOCATION)
-EXTRA_CFLAGS += -I$(AQROOT)/hal/security_v1/
 EXTRA_CFLAGS += -I$(AQROOT)/$(SOC_PLATFORM_LOCATION)
+
+ifeq ($(ENABLE_TRUST_APPLICATION),1)
+EXTRA_CFLAGS += -I$(AQROOT)/hal/security_v1/
+endif
 
 ifneq ($(CONFIG_ARM),)
 EXTRA_CFLAGS += -Iarch/arm/mm
@@ -291,7 +297,9 @@ endif
 
 EXTRA_CFLAGS += -DHOST=\"$(HOST)\"
 
+ifeq ($(ENABLE_TRUST_APPLICATION),1)
 EXTRA_CFLAGS += -DgcdENABLE_TRUST_APPLICATION=1
+endif
 
 ifeq ($(ENABLE_VIDEO_MEMORY_MIRROR),1)
 EXTRA_CFLAGS += -DgcdENABLE_VIDEO_MEMORY_MIRROR=1

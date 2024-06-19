@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -1121,7 +1121,8 @@ typedef struct _gcsTHREAD_WALKER_INFO {
     gctUINT32   groupNumberUniformIdx;
     gctADDRESS  baseAddress;
     gctBOOL     bDual16;
-    gctBOOL     bVipSram;
+    gctUINT32   coreCount;
+    gctUINT32   coreIDs[gcdMAX_3DGPU_COUNT];
 } gcsTHREAD_WALKER_INFO;
 
 #if gcdENABLE_3D && gcdUSE_VX
@@ -1582,6 +1583,9 @@ gcoTEXTURE_LockMipMap(IN gcoTEXTURE Texture,
 
 gceSTATUS
 gcoTEXTURE_SetEndianHint(IN gcoTEXTURE Texture, IN gceENDIAN_HINT EndianHint);
+
+gceSTATUS
+gcoTEXTURE_SetSurfType(IN gcoTEXTURE Texture, IN gceSURF_TYPE type);
 
 gceSTATUS
 gcoTEXTURE_Disable(IN gcoHAL Hal, IN gctINT Sampler, IN gctBOOL DefaultInteger);

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -153,6 +153,9 @@ typedef struct _gcsHAL_QUERY_VIDEO_MEMORY {
     OUT gctUINT32           exclusivePhysName;
     /* Size in bytes of exclusive memory.*/
     OUT gctUINT64           exclusiveSize;
+
+    /* If the virtual pool can be an available video memory pool. */
+    OUT gctBOOL             virtualPoolEnabled;
 } gcsHAL_QUERY_VIDEO_MEMORY;
 
 /* gcvHAL_QUERY_CHIP_IDENTITY */
@@ -230,8 +233,6 @@ typedef struct _gcsHAL_QUERY_CHIP_IDENTITY {
     /* Customer ID. */
     gctUINT32                   customerID;
 
-    gctUINT32                   chipConfig;
-
     /* CPU view physical address and size of SRAMs. */
     gctUINT64                   sRAMBases[gcvSRAM_INTER_COUNT];
     gctUINT32                   sRAMSizes[gcvSRAM_INTER_COUNT];
@@ -246,6 +247,8 @@ typedef struct _gcsHAL_QUERY_CHIP_IDENTITY {
 
     /* Virtual address bits. */
     gctUINT32                   virtualAddressBits;
+
+    gctUINT32                   chipConfig;
 } gcsHAL_QUERY_CHIP_IDENTITY;
 
 /* gcvHAL_QUERY_CHIP_OPTION. */
@@ -279,9 +282,6 @@ typedef struct _gcsHAL_QUERY_CHIP_OPTIONS {
     gctUINT32                   extSRAMSizes[gcvSRAM_EXT_COUNT];
     gctUINT32                   extSRAMCount;
 
-    /* Only represents system reserved memory pool currently. */
-    gctUINT32                   vidMemCount;
-
     gceSECURE_MODE              secureMode;
 
     gctBOOL                     hasShader;
@@ -291,13 +291,16 @@ typedef struct _gcsHAL_QUERY_CHIP_OPTIONS {
     gctUINT32                   configNNPowerControl;
     /* Active NN core count. */
     gctUINT32                   activeNNCoreCount;
+
+    /* Only represents system reserved memory pool currently. */
+    gctUINT32                   vidMemCount;
 } gcsHAL_QUERY_CHIP_OPTIONS;
 
 /* gcvHAL_QUERY_CHIP_FREQUENCY. */
 typedef struct _gcsHAL_QUERY_CHIP_FREQUENCY *gcsHAL_QUERY_CHIP_FREQUENCY_PTR;
 typedef struct _gcsHAL_QUERY_CHIP_FREQUENCY {
-    OUT gctUINT32               mcClk;
-    OUT gctUINT32               shClk;
+    OUT gctUINT64               mcClk;
+    OUT gctUINT64               shClk;
 } gcsHAL_QUERY_CHIP_FREQUENCY;
 
 /* Obsolete for userpace. */
@@ -353,11 +356,11 @@ typedef struct _gcsHAL_ALLOCATE_LINEAR_VIDEO_MEMORY {
     /* External SRAM index. */
     IN gctINT32                 extSRAMIndex;
 
-    /* Video memory index, only represents system reserved memroy pool currently. */
-    IN gctINT32                 vidMemIndex;
-
     /* Allocated video memory. */
     OUT gctUINT32               node;
+
+    /* Video memory index, only represents system reserved memroy pool currently. */
+    IN gctINT32                 vidMemIndex;
 } gcsHAL_ALLOCATE_LINEAR_VIDEO_MEMORY;
 
 typedef struct _gcsUSER_MEMORY_DESC {
@@ -522,8 +525,8 @@ typedef struct _gcsHAL_CACHE {
     IN gctUINT64                process;
     IN gctUINT64                logical;
     IN gctUINT64                bytes;
-    IN gctUINT64                offset;
     IN gctUINT32                node;
+    IN gctUINT64                offset;
 } gcsHAL_CACHE;
 
 /* gcvHAL_ATTACH */
@@ -1111,15 +1114,22 @@ typedef struct _gcsHAL_SYNC_VIDEO_MEMORY {
 } gcsHAL_SYNC_VIDEO_MEMORY;
 #endif
 
+#if gcdENABLE_CLEAR_FENCE
+typedef struct _gcsHAL_STORE_CLEAR_FENCE {
+    gctADDRESS                  address;
+    gctUINT64                   fenceValue;
+    gctUINT64                   recordId;
+    gctBOOL                     use64BitFence;
+    gctBOOL                     isClear;
+} gcsHAL_STORE_CLEAR_FENCE;
+#endif
+
 typedef struct _gcsHAL_INTERFACE {
     /* Command code. */
     gceHAL_COMMAND_CODES        command;
 
     /* Hardware type. */
     gceHARDWARE_TYPE            hardwareType;
-
-    /* Device index. */
-    gctUINT32                   devIndex;
 
     /* Core index for current hardware type. */
     gctUINT32                   coreIndex;
@@ -1135,11 +1145,6 @@ typedef struct _gcsHAL_INTERFACE {
 
     /* The mutext already acquired */
     IN gctBOOL                  commitMutex;
-
-    /* O/S specific device context. -- Needed for Windows WDDM device callbacks and kernel mode thunks. */
-    gctUINT64                   devCtxt;
-    /* API type. -- Needed for Windows WDDM device kernel mode thunks to set ClientHint when a context is created. */
-    gceAPI                      api;
 
     /* Union of command structures. */
     union _u {
@@ -1238,7 +1243,20 @@ typedef struct _gcsHAL_INTERFACE {
 #if gcdENABLE_VIDEO_MEMORY_MIRROR
         gcsHAL_SYNC_VIDEO_MEMORY            SyncVideoMemory;
 #endif
+#if gcdENABLE_CLEAR_FENCE
+        gcsHAL_STORE_CLEAR_FENCE            UserFence;
+#endif
     } u;
+
+    /* O/S specific device context. -- Needed for Windows WDDM device callbacks and kernel mode thunks. */
+    gctUINT64                   devCtxt;
+
+    /* Device index. */
+    gctUINT32                   devIndex;
+
+    /* API type. -- Needed for Windows WDDM device kernel mode thunks to set ClientHint when a context is created. */
+    gceAPI                      api;
+
 } gcsHAL_INTERFACE;
 
 #if VIVANTE_PROFILER
@@ -1249,26 +1267,14 @@ typedef struct _gcsHAL_PROFILER_INTERFACE {
     /* Hardware type. */
     gceHARDWARE_TYPE            hardwareType;
 
-    /* Device index. */
-    gctUINT32                   devIndex;
-
     /* Core index for current hardware type. */
     gctUINT32                   coreIndex;
 
     /* Status value. */
     gceSTATUS                   status;
 
-    /* Engine */
-    gceENGINE                   engine;
-
     /* Ignore information from TSL when doing IO control */
     gctBOOL                     ignoreTLS;
-
-    /* The mutext already acquired */
-    IN gctBOOL                  commitMutex;
-
-    /* O/S specific device context. -- Needed for Windows WDDM device callbacks and kernel mode thunks. */
-    gctPOINTER                  devCtxt;
 
     /* Union of command structures. */
     union profiler_u {
@@ -1279,6 +1285,10 @@ typedef struct _gcsHAL_PROFILER_INTERFACE {
         gcsHAL_READ_ALL_PROFILE_REGISTERS_PART2 RegisterProfileData_part2;
         gcsHAL_PROFILE_REGISTERS_2D             RegisterProfileData2D;
     } u;
+
+    /* Device index. */
+    gctUINT32                   devIndex;
+
 } gcsHAL_PROFILER_INTERFACE;
 #endif
 

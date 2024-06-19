@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -204,7 +204,7 @@
  *       When set to 1, will dump hw command buffer when GPU/VIP hang.
  */
 #ifndef gcdDUMP_HW_SUBCOMMAND
-#define gcdDUMP_HW_SUBCOMMAND           1
+#define gcdDUMP_HW_SUBCOMMAND           0
 #endif
 
 /*
@@ -1268,17 +1268,13 @@
  *      platform doesn't want/need to use trust zone.
  */
 #ifndef gcdENABLE_TRUST_APPLICATION
-#if (defined(_WIN32) && !defined(UNDER_CE)) || (defined(LINUX) && !defined(EMULATOR))
-#  define gcdENABLE_TRUST_APPLICATION         1
-# else
-#  define gcdENABLE_TRUST_APPLICATION         0
-# endif
+#  define gcdENABLE_TRUST_APPLICATION           0
 #endif
 
 /* Disable gcdENABLE_TRUST_APPLICATION when oboslete gcdSECURITY enabled. */
 #if gcdSECURITY
 # undef gcdENABLE_TRUST_APPLICATION
-# define gcdENABLE_TRUST_APPLICATION             0
+# define gcdENABLE_TRUST_APPLICATION            0
 #endif
 
 #ifndef gcdMMU_SECURE_AREA_SIZE
@@ -1365,11 +1361,7 @@
  *       When enabled, will use the zwp_linux_surface_synchronization path,
  *       otherwise switch to old wayland path.
  */
-#if defined(WAYLAND_VERSION_MAJOR) && defined(WAYLAND_VERSION_MINOR)
-#if ((WAYLAND_VERSION_MAJOR >=1) && (WAYLAND_VERSION_MINOR>=17))
 #define gcdUSE_ZWP_SYNCHRONIZATION                  1
-#endif
-#endif
 
 /*
  *   gcdUSE_SINGLE_CONTEXT
@@ -1607,6 +1599,20 @@
  */
 #ifndef gcdENABLE_NONCACHE_COMMANDBUF
 #define gcdENABLE_NONCACHE_COMMANDBUF            0
+#endif
+
+/*
+ *  gcdENABLE_CLEAR_FENCE
+ *
+ *      If enabled, will record fence value in kernel and
+ *      recovery all fence when the kernel do recovery operation.
+ */
+#ifndef gcdENABLE_CLEAR_FENCE
+#if defined(LINUX) && !defined(EMULATOR)
+#  define gcdENABLE_CLEAR_FENCE                  1
+# else
+#  define gcdENABLE_CLEAR_FENCE                  0
+# endif
 #endif
 
 #endif /* __gc_hal_options_h_ */

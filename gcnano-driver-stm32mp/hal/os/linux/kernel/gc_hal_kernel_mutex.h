@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -59,7 +59,7 @@
 #include "gc_hal.h"
 #include <linux/mutex.h>
 
-#if IS_ENABLED(CONFIG_PROVE_LOCKING)
+#if IS_ENABLED(CONFIG_PROVE_LOCKING) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
 
 struct key_mutex {
     struct mutex mut;
@@ -71,7 +71,7 @@ struct key_mutex {
 ({                                                                                 \
     /* Allocate the mutex structure. */                                            \
     struct key_mutex *key_mut;                                                     \
-    gceSTATUS _status = gckOS_Allocate(Os, gcmSIZEOF(struct key_mutex), (gctPOINTER)&key_mut); \
+    gceSTATUS _status = gckOS_Allocate(Os, gcmSIZEOF(struct key_mutex), (gctPOINTER *) &key_mut); \
                                                                                    \
     if (gcmIS_SUCCESS(_status)) {                                                  \
         /* Initialize the mutex. */                                                \

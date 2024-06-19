@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -2170,7 +2170,6 @@ _ProgramNNInstruction(gckHARDWARE Hardware, gctUINT8 DataType,
     gctADDRESS bufferAddress = 0;
     gctSIZE_T bufferBytes, bytes;
     gctUINT32 *command = gcvNULL;
-    gctSIZE_T outbufferBytes = 0;
     gctUINT32 kernelAddress, inImageAddress, outImageAddress;
 
     gcmkHEADER_ARG("Hardware=%p", Hardware);
@@ -2187,7 +2186,6 @@ _ProgramNNInstruction(gckHARDWARE Hardware, gctUINT8 DataType,
                                      &bufferLogical, &bufferAddress));
 
     gcmkONERROR(_GetNNDataSize(DataType, &itemBytes));
-    outbufferBytes = (gctSIZE_T)(OutImageXSize * OutImageYSize * OutImageZSize * itemBytes);
     command = (gctUINT32_PTR)bufferLogical;
     gckOS_MemCopy(command, cd->NNIns, bytes);
 
@@ -2488,7 +2486,6 @@ _ProgramTPKernel(gckHARDWARE Hardware, gctUINT8 DataType,
     gctADDRESS bufferAddress = 0;
     gctSIZE_T bufferBytes = 0;
     gctSIZE_T bytes;
-    gctUINT32 *buffer = gcvNULL;
 
     bytes = cd->TPkerLen;
     bufferBytes = cd->TPkerLen;
@@ -2500,8 +2497,6 @@ _ProgramTPKernel(gckHARDWARE Hardware, gctUINT8 DataType,
                                      gcvVIDMEM_TYPE_BITMAP, AllocFlag, Pool,
                                      &bufferBytes, &bufferNode,
                                      &bufferLogical, &bufferAddress));
-
-    buffer = (gctUINT32_PTR)bufferLogical;
 
     /* Fill the data. */
     gckOS_MemCopy(bufferLogical, cd->TPKer, bytes);
@@ -2657,14 +2652,22 @@ _ProgramTPInstruction(gckHARDWARE Hardware, gctUINT8 DataType,
 
     gcmkHEADER_ARG("Hardware=%p", Hardware);
 
-    bytes = cd->TPCoreCount * TP_INSTRUCTION_LEN;
-    bufferBytes = cd->TPCoreCount * TP_INSTRUCTION_LEN;
+    bytes = bufferBytes = (gctSIZE_T)cd->TPCoreCount * TP_INSTRUCTION_LEN;
+
+    if (bytes > gcmSIZEOF(cd->TPIns)) {
+        gcmkTRACE(gcvLEVEL_ERROR, \
+            "%s(%d): buffer overflowed (%d vs. %d).", \
+            __FUNCTION__, __LINE__, bytes, gcmSIZEOF(cd->TPIns));
+
+        gcmkONERROR(gcvSTATUS_OUT_OF_RESOURCES);
+    }
+
     /* Allocate buffer. */
     gcmkONERROR(_AllocateVideoMemory(Hardware->kernel,
                                      gcvVIDMEM_TYPE_COMMAND, AllocFlag, Pool,
                                      &bufferBytes, &bufferNode,
                                      &bufferLogical, &bufferAddress));
-    gckOS_MemCopy(bufferLogical, cd->TPIns, bytes);
+    gckOS_MemCopy(bufferLogical, cd->TPIns, gcmMIN(bytes, gcmSIZEOF(cd->TPIns)));
     command = (gctUINT32_PTR)bufferLogical;
     steps = bytes / TP_INSTRUCTION_LEN;
     KernelAnchor = command[11];
