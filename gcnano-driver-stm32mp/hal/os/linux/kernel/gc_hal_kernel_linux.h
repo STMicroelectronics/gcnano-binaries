@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -52,7 +52,6 @@
 *
 *****************************************************************************/
 
-
 #ifndef __gc_hal_kernel_linux_h_
 #define __gc_hal_kernel_linux_h_
 
@@ -67,6 +66,11 @@
 #include <linux/vmalloc.h>
 #include <linux/dma-mapping.h>
 #include <linux/kthread.h>
+
+#if gcdENABLE_TTM
+#include <linux/pfn_t.h>
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29)
 # include <linux/iommu.h>
 # include <linux/iova.h>
@@ -178,6 +182,14 @@
 # define current_mm_mmap_sem         current->mm->mmap_sem
 #endif
 
+#ifndef DMA_BIT_MASK
+# define DMA_BIT_MASK(n)             (((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
+#endif
+
+#ifndef PHYS_PFN
+# define PHYS_PFN(x)                 ((unsigned long)((x) >> PAGE_SHIFT))
+#endif
+
 #ifndef untagged_addr
 # define untagged_addr(addr)         (addr)
 #endif
@@ -279,9 +291,6 @@ struct _gckOS {
     gcsDEBUGFS_DIR              dumpDebugfsDir;
 
     atomic_t                    nodeID;
-#if gcdENABLE_CLEAR_FENCE
-    struct idr                  fenceIdr;
-#endif
 };
 
 typedef struct _gcsSIGNAL *gcsSIGNAL_PTR;
@@ -377,16 +386,29 @@ is_vmalloc_addr(void *Addr)
 }
 #endif
 
+gceSTATUS
+viv_misc_device_node_create(uint32_t dev_index);
+
 void
-viv_device_node_destroy(uint32_t dev_index);
+viv_misc_device_node_destroy(uint32_t dev_index);
 
 gceSTATUS
-viv_device_node_create(uint32_t dev_index);
+viv_char_device_node_create(uint32_t dev_index);
+
+void
+viv_char_device_node_destroy(uint32_t dev_index);
 
 void
 gckIOMMU_Destory(gckOS Os, gckIOMMU Iommu);
 
 gceSTATUS
 gckIOMMU_Construct(gckOS Os, gckIOMMU *Iommu);
+
+/* Drm init and destroy */
+#if gcdENABLE_DRM
+int viv_drm_probe(struct device *dev);
+
+int viv_drm_remove(struct device *dev);
+#endif
 
 #endif /* __gc_hal_kernel_linux_h_ */

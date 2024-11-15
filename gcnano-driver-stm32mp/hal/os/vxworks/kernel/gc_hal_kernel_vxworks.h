@@ -1,6 +1,6 @@
 /****************************************************************************
 *
-*    Copyright (c) 2005 - 2023 by Vivante Corp.  All rights reserved.
+*    Copyright (c) 2005 - 2024 by Vivante Corp.  All rights reserved.
 *
 *    The material in this file is confidential and contains trade secrets
 *    of Vivante Corporation. This is proprietary information owned by
@@ -9,7 +9,6 @@
 *    without the express written permission of Vivante Corporation.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_kernel_vxworks_h_
 #define __gc_hal_kernel_vxworks_h_
@@ -190,7 +189,7 @@ _ConvertLogical2Physical(
     OUT gctPHYS_ADDR_T * Physical
     );
 
-gctBOOL
+gceSTATUS
 _QuerySignal(
     IN gckOS Os,
     IN gctSIGNAL Signal

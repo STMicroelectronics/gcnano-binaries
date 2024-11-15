@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_driver_shared_h_
 #define __gc_hal_driver_shared_h_
@@ -249,6 +248,9 @@ typedef struct _gcsHAL_QUERY_CHIP_IDENTITY {
     gctUINT32                   virtualAddressBits;
 
     gctUINT32                   chipConfig;
+
+    /* Pyhsical address bits. */
+    gctUINT32                   physicalAddressBits;
 } gcsHAL_QUERY_CHIP_IDENTITY;
 
 /* gcvHAL_QUERY_CHIP_OPTION. */
@@ -294,6 +296,9 @@ typedef struct _gcsHAL_QUERY_CHIP_OPTIONS {
 
     /* Only represents system reserved memory pool currently. */
     gctUINT32                   vidMemCount;
+
+    gctBOOL                     processPageTable;
+    gctBOOL                     sharedPageTable;
 } gcsHAL_QUERY_CHIP_OPTIONS;
 
 /* gcvHAL_QUERY_CHIP_FREQUENCY. */
@@ -657,6 +662,7 @@ typedef struct _gcsHAL_SUBCOMMIT {
 typedef struct _gcsHAL_COMMIT {
     gcsHAL_SUBCOMMIT            subCommit;
 
+    /* The command buffer is linked to multiple command queue. */
     gctBOOL                     shared;
 
     gctBOOL                     contextSwitched;
@@ -1248,11 +1254,13 @@ typedef struct _gcsHAL_INTERFACE {
 #endif
     } u;
 
-    /* O/S specific device context. -- Needed for Windows WDDM device callbacks and kernel mode thunks. */
-    gctUINT64                   devCtxt;
-
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
     /* Device index. */
     gctUINT32                   devIndex;
+#endif
+
+    /* O/S specific device context. -- Needed for Windows WDDM device callbacks and kernel mode thunks. */
+    gctUINT64                   devCtxt;
 
     /* API type. -- Needed for Windows WDDM device kernel mode thunks to set ClientHint when a context is created. */
     gceAPI                      api;
@@ -1285,9 +1293,10 @@ typedef struct _gcsHAL_PROFILER_INTERFACE {
         gcsHAL_READ_ALL_PROFILE_REGISTERS_PART2 RegisterProfileData_part2;
         gcsHAL_PROFILE_REGISTERS_2D             RegisterProfileData2D;
     } u;
-
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
     /* Device index. */
     gctUINT32                   devIndex;
+#endif
 
 } gcsHAL_PROFILER_INTERFACE;
 #endif

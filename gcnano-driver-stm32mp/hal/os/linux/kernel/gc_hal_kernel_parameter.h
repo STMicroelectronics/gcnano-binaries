@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef _GC_HAL_KERNEL_PARAMETER_H_
 #define _GC_HAL_KERNEL_PARAMETER_H_
@@ -139,10 +138,10 @@ module_param(contiguousSize, ulong, 0644);
 MODULE_PARM_DESC(contiguousSize, "Size of reserved system memory");
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)
-static gctPHYS_ADDR_T contiguousBase = 0;
+static gctPHYS_ADDR_T contiguousBase;
 module_param(contiguousBase, ullong, 0644);
 #else
-static ulong contiguousBase = 0;
+static ulong contiguousBase;
 module_param(contiguousBase, ulong, 0644);
 #endif
 MODULE_PARM_DESC(contiguousBase, "Base address of reserved system memory");
@@ -228,8 +227,8 @@ static int irq2Ds[gcdCORE_2D_COUNT] = {[0 ... gcdCORE_2D_COUNT - 1] = -1};
 module_param_array(irq2Ds, int, NULL, 0644);
 MODULE_PARM_DESC(irq2Ds, "Array of IRQ numbers of multi-2D");
 
-static uint isrPoll = 0;
-module_param(isrPoll, uint, 0644);
+static ulong isrPoll;
+module_param(isrPoll, ulong, 0644);
 MODULE_PARM_DESC(isrPoll, "Bits isr polling for per-core, default 0'1b means disable, 1'1b means auto enable isr polling mode");
 
 /******************************************************************************
@@ -291,14 +290,16 @@ module_param(recovery, uint, 0644);
 MODULE_PARM_DESC(recovery, "Recover GPU from stuck (1: Enable, 0: Disable)");
 
 /*
- * Level of stuck dump content, 0~5 and 11~15.
+ * Level of stuck dump content, 0~6 and 11~16.
  * 0: Disable. 1: Dump nearby memory. 2: Dump user command.
  * 3: Commit stall besides level2. 4: Dump kernel command buffer besides level3.
- * 5: Dump all the cores with level4.
+ * 5: Dump debug register info besides level4. 6: Dump subCommand buffer besides level5.
  *
- * Level 1~5 + 10 means force dump, whether the recovery is enabled or not.
+ * Level 1~6 + 10 means force dump, whether the recovery is enabled or not.
+ *
+ * Notice: Level 6 and level 16 requires gcdDUMP_HW_SUBCOMMAND to be enabled.
  */
-static uint stuckDump = 0;
+static uint stuckDump;
 module_param(stuckDump, uint, 0644);
 MODULE_PARM_DESC(stuckDump, "Level of stuck dump content.");
 
@@ -306,11 +307,11 @@ MODULE_PARM_DESC(stuckDump, "Level of stuck dump content.");
  * Level of debug zone.
  * 0: Disable.  1: debug level verbose and zone all.
  */
-static uint debugLevel = 0;
+static uint debugLevel;
 module_param(debugLevel, uint, 0644);
 MODULE_PARM_DESC(debugLevel, "Level of debug.");
 
-static int showArgs = 0;
+static int showArgs;
 module_param(showArgs, int, 0644);
 MODULE_PARM_DESC(showArgs, "Display parameters value when driver loaded");
 
@@ -341,7 +342,7 @@ MODULE_PARM_DESC(softReset, "Disable soft reset when insert the driver if set it
  *                            SRAM related                                    *
  ******************************************************************************/
 
-static uint sRAMLoopMode = 0;
+static uint sRAMLoopMode;
 module_param(sRAMLoopMode, uint, 0644);
 MODULE_PARM_DESC(sRAMLoopMode, "Default 0 means SRAM pool must be specified when allocating SRAM memory, 1 means SRAM memory will be looped as default pool.");
 
@@ -418,11 +419,11 @@ static uint processPageTable = 1;
 module_param(processPageTable, uint, 0644);
 MODULE_PARM_DESC(processPageTable, "Default 0 means the page table is shared by all the cores in one device or per-core. 1 means the page table is per-process.");
 
-static ulong baseAddress = 0;
+static ulong baseAddress;
 module_param(baseAddress, ulong, 0644);
 MODULE_PARM_DESC(baseAddress, "The pre-flatmapping CPU view base address in MMU page table. It's shared for all core");
 
-static ulong physSize = 0;
+static ulong physSize;
 module_param(physSize, ulong, 0644);
 MODULE_PARM_DESC(physSize, "The pre-flatmapping size in MMU page table. If set it to 0, driver will skip all the pre-flatmapping related work");
 
@@ -463,7 +464,7 @@ static uint reg2DOffsets[gcdGLOBAL_CORE_COUNT] = {
 module_param_array(reg2DOffsets, uint, NULL, 0644);
 MODULE_PARM_DESC(reg2DOffsets, "Array of register 2D offsets in corresponding BAR space");
 
-static uint regVGOffset = 0;
+static uint regVGOffset;
 module_param(regVGOffset, int, 0644);
 MODULE_PARM_DESC(regVGOffset, "register VG offset.");
 
@@ -485,8 +486,20 @@ static uint major = 199;
 module_param(major, uint, 0644);
 MODULE_PARM_DESC(major, "major device number for GC device");
 
-static uint type = 0;
+static uint type;
 module_param(type, uint, 0664);
 MODULE_PARM_DESC(type, "0 - Char Driver (Default), 1 - Misc Driver");
+
+static uint vGPUType;
+module_param(vGPUType, uint, 0664);
+MODULE_PARM_DESC(vGPUType, "0 - vGPU is disabled(Default), 1 - MDEV vGPU, 2 - SRIOV vGPU");
+
+static uint vGPUId;
+module_param(vGPUId, uint, 0664);
+MODULE_PARM_DESC(vGPUId, "The vGPU id will be used set for debug register when the vGPU is enabled");
+
+static uint cmdQueueSizeByPage = 1;
+module_param(cmdQueueSizeByPage, uint, 0664);
+MODULE_PARM_DESC(cmdQueueSizeByPage, "The each kernel command queue page number");
 
 #endif /* _GC_HAL_KERNEL_PARAMETER_H_ */

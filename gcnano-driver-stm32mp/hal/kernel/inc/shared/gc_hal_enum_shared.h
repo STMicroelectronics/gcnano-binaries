@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_shared_enum_h_
 #define __gc_hal_shared_enum_h_
@@ -684,7 +683,7 @@ typedef enum _gceFEATURE {
     gcvFEATURE_SH_HAS_32BIT_NEG_OFFSET_FIX_FOR_40BIT_VA,
     gcvFEATURE_SH_SUPPORT_AIGM,
     gcvFEATURE_SH_CS_PAGE_SIZE_ISSUE,
-    gcvFEATURE_SH_INTEGER_FRONT_FACE,
+    gcvFEATURE_SH_FRONT_FACE_FIX,
     gcvFEATURE_SH_SUPPORT_MULTIVIEWPORT,
 
     gcvFEATURE_SH_PER_STAGE_LOCAL_STORAGE,
@@ -693,6 +692,11 @@ typedef enum _gceFEATURE {
     gcvFEATURE_SH_D3D11_SUPPORT,
 
     gcvFEATURE_SH_DYNAMIC_TEXTURE_INDEXING,
+    gcvFEATURE_SH_INT64_VA_CALC_ENHANCE,
+
+    gcvFEATURE_ONE_OUTPUT_PER_COMP_FOR_MFU,
+
+    gcvFEATURE_SH_BARRIER_EXECUTION_FIX,
 
     /* AIGPU feature. */
     gcvFEATURE_AI_GPU,
@@ -881,6 +885,11 @@ typedef enum _gceFEATURE {
     gcvFEATURE_BIT_NN_1ST_AND_2ND_INIMAGE_RAISE_VIPSRAM_RD_UPDATE_AT_SAME_TIME_PHASE1_FIX,
     gcvFEATURE_BIT_NN_1ST_AND_2ND_INIMAGE_RAISE_VIPSRAM_RD_UPDATE_AT_SAME_TIME_PHASE2_FIX,
     gcvFEATURE_BIT_SECONDIMG_TILE_SIDEBANFIFO_FIX,
+    gcvFEATURE_BIT_NN_NONZERO_BORDER,
+    gcvFEATURE_BIT_NN_SUPPORT_CLAMP_BORDER_MODE,
+    gcvFEATURE_BIT_NN_MIRROR_BORDER,
+    gcvFEATURE_BIT_NN_NONZERO_MIRROR_BORDER,
+    gcvFEATURE_BIT_NN_4BIT_PERF_EVEN_TILEXSIZE_FIX,
 
     gcvFEATURE_BIT_NN_4BIT_PHASE1,
     gcvFEATURE_BIT_NN_SUPPORT_DECONVNxN_S_LESS_THAN_16,
@@ -894,6 +903,7 @@ typedef enum _gceFEATURE {
     gcvFEATURE_BIT_NN_SUPPORT_CONFIGURABLE_FASTXDP3,
     gcvFEATURE_BIT_SH_SUPPORT_VEC2,
     gcvFEATURE_BIT_KERNEL_WR_RD_LUTLOAD_DIRECTMODE_ADDR_FIX,
+    gcvFEATURE_BIT_MULTI_AXI_ID_IMG_KERNEL_SAME_FIX,
     gcvFEATURE_VALUE_NN_COEF_DECOMPRESS_PERF_X,
     gcvFEATURE_BIT_VZ_GROUP_START_Z_OVERFLOW_FIX,
     gcvFEATURE_BIT_NN_SPLIT_X_AMONG_CLUSTE,
@@ -911,7 +921,27 @@ typedef enum _gceFEATURE {
     gcvFEATURE_BIT_NN_TILE_YSIZE_127_LIMITATION_FIX,
     gcvFEATURE_BIT_NN_2ND_IMG_SMALL_3D_TILE_FIX,
     gcvFEATURE_BIT_NN_CONV_1D_16BIT_FORMAT_INTILE_SIZE_LIMITATION_FIX,
+    gcvFEATURE_BIT_SP_NOIN_IMGRD_DUMMY_FIX,
     gcvFEATURE_BIT_PERF_KERNEL_DESCRIPTOR_SOURCE_FIX,
+    gcvFEATURE_BIT_TENSOR_DMA,
+    gcvFEATURE_BIT_SBP1_KHEAD_CMDSIZE_FIX,
+    gcvFEATURE_BIT_NN_SUPPORT_FUSA,
+    gcvFEATURE_BIT_TC_PROBE_COUNTER,
+    gcvFEATURE_BIT_NN_FP8_PHASE1,
+    gcvFEATURE_BIT_SH_CONFORMANCE_BRUTEFORCE_FIX,
+    gcvFEATURE_BIT_STREAMMODE_ONE_NNCMD_ONE_2DTILE_FIX,
+    gcvFEATURE_BIT_MULTI_ID_DIRECTMODE_CHANGE_FIX,
+    gcvFEATURE_BIT_NN_TILE_BRICK_MODE,
+    gcvFEATURE_BIT_TILESIZE_LIMITATION_CORE_BYPASS_FIX,
+    gcvFEATURE_BIT_FIRST_SECOND_IMG_SAME_ID_FIX,
+    gcvEATURE_BIT_NN_BF16_I4_I8_QUANTIZATION,
+    gcvFEATURE_BIT_VGPU,
+
+    gcvFEATURE_BIT_TRSP2_NOT_SUPPORT_VIPSRAM_IN_XSTRIDE_IT_FETCH_XSIZE_FIX, /*2362*/
+    gcvFEATURE_BIT_BURSTCOLLECTOR_ADDR_UPDATE_FIX, /* 2406 */
+    gcvFEATURE_BIT_TRSB2_SMALL_BATCH_UPDATE_FIX, /* 2413 */
+    gcvFEATURE_BIT_11PK_NO_POOLING_NEWIMGRD_ADDR_FIX, /*2563*/
+    gcvFEATURE_BIT_NN_NT_SMALLBATCH_TRNSFER_INIT_FIX, /*2423*/
 
     /* Insert features above this comment only. */
     gcvFEATURE_COUNT                /* Not a feature. */
@@ -942,6 +972,7 @@ typedef enum _gceCHIPPOWERSTATE {
     gcvPOWER_SUSPEND_TIMEOUT   = gcvPOWER_SUSPEND | gcvPOWER_FLAG_TIMEOUT,
     gcvPOWER_OFF_TIMEOUT       = gcvPOWER_OFF     | gcvPOWER_FLAG_TIMEOUT,
 
+    gcvPOWER_OFF_EXIT,
 } gceCHIPPOWERSTATE;
 
 /* CPU cache operations */
@@ -994,6 +1025,7 @@ typedef enum _gceSURF_TYPE {
     gcvSURF_TILED                   = 0x1000000, /* force create tile buffer, as we will convert it to supertile according to related hardware feature by default */
     gcvSURF_FORCE_32BIT_VA          = 0x2000000, /* force allocate 32bit VA */
     gcvSURF_LINEAR_NO_ALIGNMENT     = 0x4000000, /* only for linear render target buffer */
+    gcvSURF_NO_TILESTATUS_FILL      = 0x8000000, /* do not fill tile status buffer */
 
     gcvSURF_TEXTURE_LINEAR               = gcvSURF_TEXTURE
                                          | gcvSURF_LINEAR,
@@ -1879,10 +1911,11 @@ typedef enum _gceSTATUS {
     gcvSTATUS_LOCATION_ALIASED                  =   -1028,
     gcvSTATUS_LOCATION_OVERLAP                  =   -1029,
     gcvSTATUS_LOCATION_NOTCONSISTENT            =   -1030,
+    gcvSTATUS_INDEX_OVERLAP                     =   -1031,
 
     /* Compiler errors. */
-    gcvSTATUS_COMPILER_FE_PREPROCESSOR_ERROR    =   -2000,
-    gcvSTATUS_COMPILER_FE_PARSER_ERROR          =   -2001,
+    gcvSTATUS_COMPILER_FE_PREPROCESSOR_ERROR      =   -2000,
+    gcvSTATUS_COMPILER_FE_PARSER_ERROR            =   -2001,
 
     /* Recompilation Errors */
     gcvSTATUS_RECOMPILER_CONVERT_UNIMPLEMENTED  =   -3000,
@@ -2090,6 +2123,7 @@ typedef enum _gceHAL_COMMAND_CODES {
     /* Operate fence from user*/
     gcvHAL_FENCE_OP,
     /*************** Reserved end ***************/
+    gcvHAL_NUM_COMMAND_CODES,
 } gceHAL_COMMAND_CODES;
 
 /******************************************************************************
@@ -2249,6 +2283,16 @@ typedef enum _gceSwitchMpMode {
     gcvMP_MODE_SWITCH_TO_SINGLE,
     gcvMP_MODE_SWITCH_TO_MULTI,
 } gceSwitchMpMode;
+
+typedef enum _gceLARGE_VA_VERSION {
+    gcv32BIT_VA_40BIT_PA,
+    /* 8bit or 10bit master table index. */
+    gcv40BIT_VA_40BIT_PA_0,
+    /* 16bit or 18bit master table index. */
+    gcv40BIT_VA_40BIT_PA_1,
+    /* 48bit PA. */
+    gcv40BIT_VA_48BIT_PA_0,
+} gceLARGE_VA_VERSION;
 
 #ifdef __cplusplus
 }

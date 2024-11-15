@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -52,7 +52,6 @@
 *
 *****************************************************************************/
 
-
 #define MDUID_PPA                                               0xe0000
 #define MDUID_SE                                                0x30000
 #define MDUID_APPINFO                                           0x1f0000
@@ -66,6 +65,7 @@
 #define MDUID_CS                                                0x170000
 #define MDUID_HI                                                0xa0000
 #define MDUID_MC                                                0x80000
+#define MDUID_TC                                                0x180000
 #define MDUID_TX                                                0x60000
 #define MDUID_BLT                                               0x160000
 #define MDUID_FE                                                0x00000
@@ -97,8 +97,10 @@
 #define MDUSEL_CHIPINFO_ProbeState_ChipVer                      0x0002
 #define MDUSEL_CHIPINFO_ProbeState_PID                          0x0003
 #define MDUSEL_CHIPINFO_ProbeState_CID                          0x0004
+#define MDUSEL_CHIPINFO_ProbeState_ShClk                        0x0005
+#define MDUSEL_CHIPINFO_ProbeState_TcClk                        0x0006
 
-#define MDUSEL_CHIPINFO_NUM                                     4
+#define MDUSEL_CHIPINFO_NUM                                     6
 
 DefineModule(FE, 0x00000);
 DefineProbe(0x1);
@@ -661,6 +663,9 @@ DefineProbe(0x8e2);
 DefineProbe(0x8e3);
 DefineProbe(0x8e4);
 DefineProbe(0x8e5);
+DefineProbe(0x8e6);
+DefineProbe(0x8e7);
+DefineProbe(0x8e8);
 DefineProbe(0xc01);
 DefineProbe(0xc02);
 DefineProbe(0x1001);
@@ -859,6 +864,8 @@ DefineProbe(0x8e2);
 DefineProbe(0x8e3);
 DefineProbe(0x8e4);
 DefineProbe(0x8e5);
+DefineProbe(0x8e7);
+DefineProbe(0x8e8);
 DefineProbe(0xc01);
 DefineProbe(0xc02);
 DefineProbe(0x1001);
@@ -1057,6 +1064,8 @@ DefineProbe(0x8e2);
 DefineProbe(0x8e3);
 DefineProbe(0x8e4);
 DefineProbe(0x8e5);
+DefineProbe(0x8e7);
+DefineProbe(0x8e8);
 DefineProbe(0xc01);
 DefineProbe(0xc02);
 DefineProbe(0x1001);
@@ -1255,6 +1264,8 @@ DefineProbe(0x8e2);
 DefineProbe(0x8e3);
 DefineProbe(0x8e4);
 DefineProbe(0x8e5);
+DefineProbe(0x8e7);
+DefineProbe(0x8e8);
 DefineProbe(0xc01);
 DefineProbe(0xc02);
 DefineProbe(0x1001);
@@ -1310,6 +1321,10 @@ DefineProbe(0x34);
 DefineProbe(0x35);
 DefineProbe(0x36);
 DefineProbe(0x37);
+DefineProbe(0x40);
+DefineProbe(0x41);
+DefineProbe(0x42);
+DefineProbe(0x43);
 DefineProbe(0x80);
 DefineProbe(0xfa);
 DefineProbe(0xfb);
@@ -1927,7 +1942,9 @@ DefineProbe(0x81c);
 
 DefineModule(HI, 0xa0000);
 DefineProbe(0x1);
+DefineProbe(0x10);
 DefineProbe(0x2);
+DefineProbe(0x11);
 DefineProbe(0x3);
 DefineProbe(0x4);
 DefineProbe(0x5);
@@ -2009,28 +2026,6 @@ DefineProbe(0xc0c);
 DefineProbe(0xc0d);
 DefineProbe(0xc0e);
 
-DefineModule(BLT, 0x160000);
-DefineProbe(0x1);
-DefineProbe(0x2);
-DefineProbe(0x3);
-DefineProbe(0x4);
-DefineProbe(0x10);
-DefineProbe(0x11);
-DefineProbe(0x12);
-DefineProbe(0x13);
-DefineProbe(0x14);
-DefineProbe(0x15);
-DefineProbe(0x16);
-DefineProbe(0x17);
-DefineProbe(0x18);
-DefineProbe(0x19);
-DefineProbe(0xfa);
-DefineProbe(0xfb);
-DefineProbe(0xfc);
-DefineProbe(0xfd);
-DefineProbe(0xfe);
-DefineProbe(0xff);
-
 DefineModule(L2, 0xc0000);
 DefineProbe(0x1);
 DefineProbe(0x2);
@@ -2071,6 +2066,28 @@ DefineProbe(0xfd);
 DefineProbe(0xfe);
 DefineProbe(0xff);
 
+DefineModule(BLT, 0x160000);
+DefineProbe(0x1);
+DefineProbe(0x2);
+DefineProbe(0x3);
+DefineProbe(0x4);
+DefineProbe(0x10);
+DefineProbe(0x11);
+DefineProbe(0x12);
+DefineProbe(0x13);
+DefineProbe(0x14);
+DefineProbe(0x15);
+DefineProbe(0x16);
+DefineProbe(0x17);
+DefineProbe(0x18);
+DefineProbe(0x19);
+DefineProbe(0xfa);
+DefineProbe(0xfb);
+DefineProbe(0xfc);
+DefineProbe(0xfd);
+DefineProbe(0xfe);
+DefineProbe(0xff);
+
 DefineModule(DIR, 0x150000);
 DefineProbe(0x1);
 DefineProbe(0x2);
@@ -2084,6 +2101,67 @@ DefineProbe(0x9);
 DefineProbe(0xa);
 DefineProbe(0xb);
 DefineProbe(0xc);
+DefineProbe(0xfa);
+DefineProbe(0xfb);
+DefineProbe(0xfc);
+DefineProbe(0xfd);
+DefineProbe(0xfe);
+DefineProbe(0xff);
+
+DefineModule(TC, 0x180000);
+DefineProbe(0x1);
+DefineProbe(0x2);
+DefineProbe(0x3);
+DefineProbe(0x4);
+DefineProbe(0x5);
+DefineProbe(0x6);
+DefineProbe(0x7);
+DefineProbe(0x8);
+DefineProbe(0x9);
+DefineProbe(0xa);
+DefineProbe(0xb);
+DefineProbe(0xc);
+DefineProbe(0xd);
+DefineProbe(0xe);
+DefineProbe(0xf);
+DefineProbe(0x10);
+DefineProbe(0x11);
+DefineProbe(0x12);
+DefineProbe(0x13);
+DefineProbe(0x14);
+DefineProbe(0x15);
+DefineProbe(0x16);
+DefineProbe(0x17);
+DefineProbe(0x18);
+DefineProbe(0x19);
+DefineProbe(0x1a);
+DefineProbe(0x1b);
+DefineProbe(0x1c);
+DefineProbe(0x1d);
+DefineProbe(0x1e);
+DefineProbe(0x1f);
+DefineProbe(0x20);
+DefineProbe(0x21);
+DefineProbe(0x22);
+DefineProbe(0x23);
+DefineProbe(0x24);
+DefineProbe(0x25);
+DefineProbe(0x26);
+DefineProbe(0x27);
+DefineProbe(0x28);
+DefineProbe(0x29);
+DefineProbe(0x2a);
+DefineProbe(0x2b);
+DefineProbe(0x2c);
+DefineProbe(0x2d);
+DefineProbe(0x2e);
+DefineProbe(0x2f);
+DefineProbe(0x30);
+DefineProbe(0x31);
+DefineProbe(0x32);
+DefineProbe(0x33);
+DefineProbe(0x34);
+DefineProbe(0x35);
 DefineProbe(0xfa);
 DefineProbe(0xfb);
 DefineProbe(0xfc);

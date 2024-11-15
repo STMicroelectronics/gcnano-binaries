@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -52,11 +52,14 @@
 *
 *****************************************************************************/
 
-
 #ifndef __gc_hal_kernel_device_h_
 #define __gc_hal_kernel_device_h_
 
 #include "gc_hal_kernel_debugfs.h"
+
+#if gcdENABLE_TTM
+#include "gc_hal_kernel_ttm.h"
+#endif
 
 #if gcdENABLE_TRUST_APPLICATION
 #include "gc_hal_ta.h"
@@ -136,6 +139,9 @@ typedef struct _gckGALDEVICE {
 
 #if gcdENABLE_DRM
     void                *drm;
+#if gcdENABLE_TTM
+    viv_ttm_t            ttm;
+#endif
 #endif
 } *gckGALDEVICE;
 

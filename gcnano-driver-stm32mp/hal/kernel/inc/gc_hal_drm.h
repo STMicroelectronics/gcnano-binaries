@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -52,7 +52,6 @@
 *
 *****************************************************************************/
 
-
 #ifndef __gc_hal_drm_h_
 #define __gc_hal_drm_h_
 
@@ -76,16 +75,48 @@ struct drm_viv_gem_create {
     __u64 size;
     __u32 flags;
     __u32 handle;
+    __u32 node;
+    __u32 type;
+    __u32 domain;
 };
 
 struct drm_viv_gem_lock {
     __u32 handle;
     __u32 cacheable;
     __u64 logical;
+    __u32 node;
+    __u64 priv;
+    __u32 priv_size;
 };
 
 struct drm_viv_gem_unlock {
     __u32 handle;
+    __u32 node;
+    __u32 async;
+    __u64 priv;
+    __u32 priv_size;
+};
+
+struct drm_viv_gem_release {
+    __u32 handle;
+    __u32 node;
+};
+
+struct drm_viv_gem_move {
+    __u32 handle;
+    __u32 node;
+    __u32 domain;
+};
+
+struct drm_viv_gem_wrap {
+    __u32 handle;
+    __u64 priv;
+    __u32 priv_size;
+};
+
+struct drm_viv_gem_pf {
+    __u32 handle;
+    __u32 node;
 };
 
 #define DRM_VIV_GEM_CLEAN_CACHE         0x01
@@ -181,7 +212,11 @@ struct drm_viv_gem_ref_node {
 #define DRM_VIV_GEM_GET_TILING      0x07
 #define DRM_VIV_GEM_ATTACH_AUX      0x08
 #define DRM_VIV_GEM_REF_NODE        0x09
-#define DRM_VIV_NUM_IOCTLS          0x0A
+#define DRM_VIV_GEM_RELEASE         0x0A /* design for ttm */
+#define DRM_VIV_GEM_WRAP            0x0B /* design for ttm */
+#define DRM_VIV_GEM_MOVE_BUFFER     0x0C /* design for ttm */
+#define DRM_VIV_GEM_PF              0x0D /* design for ttm */
+#define DRM_VIV_NUM_IOCTLS          0x0E
 
 #define DRM_IOCTL_VIV_GEM_CREATE        DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_CREATE, struct drm_viv_gem_create)
 #define DRM_IOCTL_VIV_GEM_LOCK          DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_LOCK, struct drm_viv_gem_lock)
@@ -193,6 +228,12 @@ struct drm_viv_gem_ref_node {
 #define DRM_IOCTL_VIV_GEM_GET_TILING    DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_GET_TILING, struct drm_viv_gem_get_tiling)
 #define DRM_IOCTL_VIV_GEM_ATTACH_AUX    DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_ATTACH_AUX, struct drm_viv_gem_attach_aux)
 #define DRM_IOCTL_VIV_GEM_REF_NODE      DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_REF_NODE, struct drm_viv_gem_ref_node)
+#if gcdENABLE_TTM
+#define DRM_IOCTL_VIV_GEM_RELEASE       DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_RELEASE, struct drm_viv_gem_release)
+#define DRM_IOCTL_VIV_GEM_WRAP          DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_WRAP, struct drm_viv_gem_wrap)
+#define DRM_IOCTL_VIV_GEM_MOVE_BUFFER   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_MOVE_BUFFER,struct drm_viv_gem_move)
+#define DRM_IOCTL_VIV_GEM_PF            DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_PF, struct drm_viv_gem_pf)
+#endif
 
 #ifdef __KERNEL__
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)

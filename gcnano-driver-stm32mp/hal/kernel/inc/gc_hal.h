@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_h_
 #define __gc_hal_h_
@@ -525,16 +524,16 @@ gceSTATUS
 gckOS_ClearAllFence(gckDEVICE Device);
 
 gctUINT64
-gckOS_AllocFenceRecordId(IN gckOS Os, IN gcsUSER_FENCE_INFO_PTR fence_info);
+gckOS_AllocFenceRecordId(IN gckDEVICE Device, IN gcsUSER_FENCE_INFO_PTR fence_info);
 
 gcsUSER_FENCE_INFO_PTR
-gckOS_ReleaseFenceRecordId(IN gckOS Os, IN gctUINT64 recordId);
+gckOS_ReleaseFenceRecordId(IN gckDEVICE Device, IN gctUINT64 recordId);
 
 void
-gckOS_PreLoadFenceRecId(IN gckOS Os);
+gckOS_PreLoadFenceRecId(IN gckDEVICE Device);
 
 void
-gckOS_PreLoadEndFenceRecId(IN gckOS Os);
+gckOS_PreLoadEndFenceRecId(IN gckDEVICE Device);
 
 #endif
 /*******************************************************************************
@@ -1098,12 +1097,12 @@ gckOS_FinishGPUFrequency(IN gckOS Os, IN gceCORE Core);
 
 gceSTATUS
 gckOS_QueryGPUFrequency(IN gckOS Os,
-                        IN gceCORE Core,
+                        IN gckHARDWARE Hardware,
                         OUT gctUINT32 *Frequency,
                         OUT gctUINT8 *Scale);
 
 gceSTATUS
-gckOS_SetGPUFrequency(IN gckOS Os, IN gceCORE Core, IN gctUINT8 Scale);
+gckOS_SetGPUFrequency(IN gckOS Os, IN gckHARDWARE Hardware, IN gctUINT8 Scale);
 
 /*******************************************************************************
  ** Semaphores.
@@ -1648,6 +1647,9 @@ gceSTATUS
 gckMMU_GetAreaType(IN gckMMU Mmu, IN gctADDRESS GpuAddress, OUT gceAREA_TYPE *AreaType);
 
 gceSTATUS
+gckMMU_GetArea(IN gckMMU Mmu, IN gctADDRESS Address, OUT gctPOINTER *Area);
+
+gceSTATUS
 gckHARDWARE_QueryContextProfile(IN gckHARDWARE Hardware,
                                 IN gctBOOL Reset,
                                 OUT gcsPROFILER_COUNTERS_PART1 *Counters_part1,
@@ -1667,6 +1669,9 @@ gckOS_DumpParam(void);
 
 gceSTATUS
 gc_mmuinfo_show(void);
+
+gceSTATUS
+gckOS_QueryUserClusterMasks(gckOS Os, gckHARDWARE Hardware);
 
 #ifdef __cplusplus
 }

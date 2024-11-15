@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_linux.h"
 #include "gc_hal_kernel_allocator.h"
@@ -347,7 +346,11 @@ _NonContiguous1MPagesAlloc(struct gfp_mdl_priv *MdlPriv, gctSIZE_T *NumPages, gc
         if (MdlPriv->Pages1M[i] == gcvNULL) {
             int order = get_order(gcd1M_PAGE_SIZE);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+            if (order >= MAX_PAGE_ORDER)
+#else
             if (order >= MAX_ORDER)
+#endif
                 gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
 
             MdlPriv->Pages1M[i] = alloc_pages(Gfp, order);
@@ -391,6 +394,7 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
     struct gfp_alloc *priv = (struct gfp_alloc *)Allocator->privateData;
     struct device *dev = (struct device *)Mdl->device;
     struct gfp_mdl_priv *mdlPriv = gcvNULL;
+    struct page **pages;
     int result;
     int low  = 0;
     int high = 0;
@@ -462,7 +466,11 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
         if (mdlPriv->contiguousPages == gcvNULL) {
             int order = get_order(bytes);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+            if (order >= MAX_PAGE_ORDER) {
+#else
             if (order >= MAX_ORDER) {
+#endif
                 status = gcvSTATUS_OUT_OF_MEMORY;
                 goto OnError;
             }
@@ -508,10 +516,16 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
         if (Mdl->pageUnit1M) {
             gcmkONERROR(_NonContiguous1MPagesAlloc(mdlPriv, &NumPages, gfp));
         } else {
-            status = _NonContiguousAlloc(mdlPriv, NumPages, normal_gfp);
+            if ((Flags & gcvALLOC_FLAG_4GB_ADDR) ||
+                (Allocator->os->device->platform->flagBits & gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS)) {
 
-            if (gcmIS_ERROR(status))
                 gcmkONERROR(_NonContiguousAlloc(mdlPriv, NumPages, gfp));
+            } else {
+                status = _NonContiguousAlloc(mdlPriv, NumPages, normal_gfp);
+
+                if (gcmIS_ERROR(status))
+                    gcmkONERROR(_NonContiguousAlloc(mdlPriv, NumPages, gfp));
+            }
         }
 
 #if gcdUSE_LINUX_SG_TABLE_API
@@ -535,7 +549,7 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
 
         result = dma_map_sg(dev, mdlPriv->sgt.sgl, mdlPriv->sgt.nents, DMA_BIDIRECTIONAL);
 
-        if (result != mdlPriv->sgt.nents) {
+        if (result == 0) {
             if (Mdl->pageUnit1M)
                 _NonContiguous1MPagesFree(mdlPriv, mdlPriv->numPages1M);
             else
@@ -566,13 +580,23 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
 #endif
     }
 
+    if (contiguous) {
+        pages = kmalloc_array(NumPages, sizeof(struct page *), GFP_KERNEL | gcdNOWARN);
+        if (!pages)
+            gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+    } else {
+        pages = mdlPriv->nonContiguousPages;
+    }
+
     for (i = 0; i < NumPages; i++) {
         struct page *page;
 
-        if (contiguous)
+        if (contiguous) {
             page = nth_page(mdlPriv->contiguousPages, i);
-        else
+            pages[i] = page;
+        } else {
             page = mdlPriv->nonContiguousPages[i];
+        }
 
         SetPageReserved(page);
 
@@ -589,6 +613,7 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
 
     Mdl->priv = mdlPriv;
     Mdl->numPages = NumPages;
+    Mdl->pages = pages;
 
     gcmkFOOTER_NO();
     return gcvSTATUS_OK;
@@ -616,6 +641,7 @@ _GFPGetSGT(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T Offset, gctSIZE_T B
 
     gcmkASSERT(Offset + Bytes <= Mdl->numPages << PAGE_SHIFT);
 
+    /* TODO: now alloc func will save the page array, here is not necessary */
     if (mdlPriv->contiguous) {
         pages = kmalloc_array(numPages, sizeof(struct page *), GFP_KERNEL | gcdNOWARN);
         if (!pages)
@@ -662,10 +688,10 @@ _GFPFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
 
     if (mdlPriv->contiguous) {
         dma_unmap_page(dev, mdlPriv->dma_addr,
-                       Mdl->numPages << PAGE_SHIFT, DMA_FROM_DEVICE);
+                       Mdl->numPages << PAGE_SHIFT, DMA_BIDIRECTIONAL);
     } else {
         dma_unmap_sg(dev, mdlPriv->sgt.sgl,
-                     mdlPriv->sgt.nents, DMA_FROM_DEVICE);
+                     mdlPriv->sgt.nents, DMA_BIDIRECTIONAL);
 
 #if gcdUSE_LINUX_SG_TABLE_API
         sg_free_table(&mdlPriv->sgt);
@@ -673,6 +699,9 @@ _GFPFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
         kfree(mdlPriv->sgt.sgl);
 #endif
     }
+
+    if (mdlPriv->contiguous)
+        kfree(Mdl->pages);
 
     for (i = 0; i < Mdl->numPages; i++) {
         if (mdlPriv->contiguous)
@@ -727,7 +756,8 @@ _GFPMmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
 
     gcmkHEADER_ARG("Allocator=%p Mdl=%p vma=%p", Allocator, Mdl, vma);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
+    ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(CONFIG_ANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else
     vma->vm_flags |= gcdVM_FLAGS;
@@ -746,6 +776,14 @@ _GFPMmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
         vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #endif
     }
+#if defined(CONFIG_X86)
+    else {
+        if (mdlPriv->contiguous)
+            set_memory_wb((unsigned long)page_address(mdlPriv->contiguousPages) + (skipPages << PAGE_SHIFT), numPages);
+        else
+            set_pages_array_wb(mdlPriv->nonContiguousPages + skipPages, numPages);
+    }
+#endif
 
     if (platform && platform->ops->adjustProt)
         platform->ops->adjustProt(vma);

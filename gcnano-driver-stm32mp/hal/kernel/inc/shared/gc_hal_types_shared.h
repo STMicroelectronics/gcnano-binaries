@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_types_shared_h_
 #define __gc_hal_types_shared_h_
@@ -369,6 +368,9 @@ typedef union _gcuFLOAT_UINT32 {
 
 /* Dynamically allocate local memory pool memory. */
 #define gcvALLOC_FLAG_DYNAMIC_ALLOC_LOCAL   0x00100000
+
+/* GPU read only. */
+#define gcvALLOC_FLAG_GPU_READ_ONLY         0x00200000
 
 /* Real allocation happens when GPU page fault. */
 #define gcvALLOC_FLAG_ALLOC_ON_FAULT        0x01000000

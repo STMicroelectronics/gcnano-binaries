@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_engine_h_
 #define __gc_hal_engine_h_
@@ -684,6 +683,10 @@ gco3D_SetBlendColorF(IN gco3D Engine,
 gceSTATUS
 gco3D_SetCulling(IN gco3D Engine, IN gceCULL Mode);
 
+/* Set point size */
+gceSTATUS
+gco3D_SetPointSize(IN gco3D Engine, IN gctFLOAT Size);
+
 /* Enable point size */
 gceSTATUS
 gco3D_SetPointSizeEnable(IN gco3D Engine, IN gctBOOL Enable);
@@ -1010,6 +1013,10 @@ gco3D_WriteBuffer(IN gco3D Engine, IN gctCONST_POINTER Data,
 gceSTATUS
 gco3D_Semaphore(IN gco3D Engine, IN gceWHERE From,
                 IN gceWHERE To, IN gceHOW How);
+
+/* Sync for multi gpu core */
+gceSTATUS
+gco3D_MultiGPUSync(void);
 
 /* Explicitly flush pipeline */
 gceSTATUS
@@ -1504,6 +1511,15 @@ gcoTEXTURE_UploadCompressed(IN gcoTEXTURE Texture,
                             IN gctUINT Slice,
                             IN gctCONST_POINTER Memory,
                             IN gctSIZE_T Bytes);
+
+gceSTATUS
+gcoTEXTURE_GetCompressedTexture(IN gcoTEXTURE Texture,
+                                IN gctINT MipMap,
+                                IN gceTEXTURE_FACE Face,
+                                IN gctSIZE_T Width,
+                                IN gctSIZE_T Height,
+                                IN gctUINT Slice,
+                                IN gctPOINTER Memory);
 
 /* Upload compressed sub data to an gcoTEXTURE object. */
 gceSTATUS

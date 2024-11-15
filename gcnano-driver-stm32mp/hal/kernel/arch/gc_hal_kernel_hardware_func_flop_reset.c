@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include <gc_hal.h>
 #include <gc_feature_database.h>
@@ -791,7 +790,7 @@ gckPPU_GetPixel(gctUINT32 Format)
     return pixel;
 }
 
-gceSTATUS
+static gceSTATUS
 gckPPU_SetEVIS(gctUINT32 Start, gctUINT32 End, gctUINT32 Evis, gctUINT32_PTR Inst)
 {
     gceSTATUS status = gcvSTATUS_OK;
@@ -931,7 +930,7 @@ OnError:
     return status;
 }
 
-gceSTATUS
+static gceSTATUS
 gckPPU_SetTempReg(gctUINT32 Where, gctUINT32 Address,
                   gctUINT32 Swizzle, gctUINT32 Modifiers, gctUINT32_PTR Inst)
 {

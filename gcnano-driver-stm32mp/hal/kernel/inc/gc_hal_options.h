@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_options_h_
 #define __gc_hal_options_h_
@@ -903,7 +902,11 @@
  *            'acquireFenceFd' for framebuffer target for DC
  */
 #ifndef gcdANDROID_NATIVE_FENCE_SYNC
-#define gcdANDROID_NATIVE_FENCE_SYNC            0
+#if defined(ANDROID) && (ANDROID_SDK_VERSION >= 17)
+#  define gcdANDROID_NATIVE_FENCE_SYNC            2
+#else
+#  define gcdANDROID_NATIVE_FENCE_SYNC            0
+#endif
 #endif
 
 #ifndef gcdLINUX_SYNC_FILE
@@ -1613,6 +1616,42 @@
 # else
 #  define gcdENABLE_CLEAR_FENCE                  0
 # endif
+#endif
+
+/*
+ *   gcdENABLE_DRM_DEBUG
+ *
+ *     If enable, driver will dump drm debug zone.
+ */
+
+#ifndef gcdENABLE_DRM_DEBUG
+#define gcdENABLE_DRM_DEBUG                      1
+#endif
+
+#ifndef gcdENABLE_EVICTION
+#define gcdENABLE_EVICTION                       0
+#endif
+
+#ifndef gcdENABLE_PERF_DISPATCH
+#define gcdENABLE_PERF_DISPATCH                  0
+#endif
+
+/*
+ *   gcdENABLE_VM_PASSTHROUGH
+ *
+ *       When enabled, will use vGPU pass-through(SRIOV) virtualization solution.
+ *       Only support Linux OS currently.
+ */
+#ifndef gcdENABLE_VM_PASSTHROUGH
+#define gcdENABLE_VM_PASSTHROUGH            0
+#endif
+
+/*
+    gcdENABLE_SAMPLER_LOCATION_FIRST_MAPPING
+        If enabled, sampler uniform location will do map first.
+*/
+#ifndef gcdENABLE_SAMPLER_LOCATION_FIRST_MAPPING
+#define gcdENABLE_SAMPLER_LOCATION_FIRST_MAPPING            1
 #endif
 
 #endif /* __gc_hal_options_h_ */

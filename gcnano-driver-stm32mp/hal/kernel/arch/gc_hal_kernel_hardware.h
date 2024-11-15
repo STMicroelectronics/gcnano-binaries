@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -248,7 +248,7 @@ struct _gckHARDWARE {
 
     gctUINT32                   devID;
 
-    gctBOOL                     largeVA;
+    gceLARGE_VA_VERSION         largeVAVersion;
 };
 
 gceSTATUS
@@ -290,6 +290,9 @@ gceSTATUS
 gckHARDWARE_QueryFrequency(gckHARDWARE Hardware);
 
 gceSTATUS
+gckHARDWARE_QueryFScale(gckHARDWARE Hardware, gctUINT8 *Scale);
+
+gceSTATUS
 gckHARDWARE_SetClock(gckHARDWARE Hardware, gctUINT32 MCScale, gctUINT32 SHScale);
 
 gceSTATUS
@@ -315,6 +318,12 @@ gckHARDWARE_CancelJob(gckHARDWARE Hardware);
 
 gceSTATUS
 gckHARDWARE_FlushCache(gckHARDWARE Hardware, gckCOMMAND Command);
+
+gceSTATUS
+gckHARDWARE_SwitchSecurityMode(gckHARDWARE Hardware,
+                               gctPOINTER Logical, gctADDRESS Address,
+                               gctUINT32 firstMode, gctUINT32 secondMode,
+                               gctUINT32 *Bytes);
 
 #if gcdENABLE_AHBXTTD
 gceSTATUS

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_precomp.h"
 
@@ -488,7 +487,7 @@ Out:
     return gcvSTATUS_OK;
 }
 
-void
+static void
 _SubmitTimerFunction(gctPOINTER Data)
 {
     gckEVENT event = (gckEVENT)Data;
@@ -669,6 +668,7 @@ gckEVENT_Destroy(gckEVENT Event)
     if (Event->submitTimer != gcvNULL) {
         gcmkVERIFY_OK(gckOS_StopTimer(Event->os, Event->submitTimer));
         gcmkVERIFY_OK(gckOS_DestroyTimer(Event->os, Event->submitTimer));
+        Event->submitTimer = gcvNULL;
     }
 
     /* Delete the queue mutex. */
@@ -728,9 +728,11 @@ gckEVENT_Destroy(gckEVENT Event)
     }
 
     gcmkVERIFY_OK(gckOS_AtomDestroy(Event->os, Event->pending));
+    Event->pending = gcvNULL;
 
 #if gcdINTERRUPT_STATISTIC
     gcmkVERIFY_OK(gckOS_AtomDestroy(Event->os, Event->interruptCount));
+    Event->interruptCount = gcvNULL;
 #endif
 
     /* Mark the gckEVENT object as unknown. */

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_kernel_buffer_h_
 #define __gc_hal_kernel_buffer_h_
@@ -208,6 +207,10 @@ struct _gcoCMDBUF
     gctUINT32                   mirrorCount;
 
     gctUINT32                   captureCommandOffset;
+
+    /* Per draw block signal and wait fences list, this list is used by Vulkan driver to implement per draw dump */
+    void* perDrawOperationNodeListHead;
+    void* perDrawOperationNodeListTail;
 };
 
 /* Event queue. */
@@ -251,7 +254,7 @@ struct _gcoQUEUE
 
 struct _gcsTEMPCMDBUF
 {
-    gctUINT32 currentByteSize;
+    gctSIZE_T currentByteSize;
     gctPOINTER buffer;
     gctBOOL  inUse;
 };

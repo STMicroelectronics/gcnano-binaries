@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_precomp.h"
 
@@ -208,6 +207,15 @@ gckKERNEL_DeinitDatabase(gckKERNEL Kernel, gcsDATABASE_PTR Database)
                                             Database->handleDatabaseMutex));
             Database->handleDatabaseMutex = gcvNULL;
         }
+
+#if gcdENABLE_PERF_DISPATCH
+        for (i = 0; i < gcvHAL_NUM_COMMAND_CODES; i++) {
+            if (Database->dispatchPerfRecords[i].mutex) {
+                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, Database->dispatchPerfRecords[i].mutex));
+                Database->dispatchPerfRecords[i].mutex = gcvNULL;
+            }
+        }
+#endif
     }
 
     gcmkFOOTER_NO();
@@ -313,7 +321,7 @@ OnError:
  **          Pointer to a variable that receives the size of the record deleted.
  **          Can be gcvNULL if the size is not required.
  */
-static gceSTATUS
+gceSTATUS
 gckKERNEL_DeleteRecord(gckKERNEL Kernel, gcsDATABASE_PTR Database,
                        gceDATABASE_TYPE Type, gctPOINTER Data,
                        gctSIZE_T_PTR Bytes OPTIONAL)
@@ -592,8 +600,16 @@ gckKERNEL_CreateProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID)
     /* Reset idle timer. */
     Kernel->db->lastIdle = 0;
 
+#if gcdENABLE_PERF_DISPATCH
+    for (i = 0; i < gcvHAL_NUM_COMMAND_CODES; i++)
+        gcmkONERROR(gckOS_CreateMutex(Kernel->os, &database->dispatchPerfRecords[i].mutex));
+#endif
+
 OnError:
     if (gcmIS_ERROR(status)) {
+        if (!database)
+            goto OnExit;
+
         if (database->mmu) {
             gckMMU_DestroyProcessMMU(database->mmu);
             database->mmu = gcvNULL;
@@ -739,9 +755,6 @@ gckKERNEL_AddProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
 
         Kernel->priorityDBCreated[id] = gcvTRUE;
     }
-#else
-    /* Verify the arguments. */
-    gcmkVERIFY_ARGUMENT(Pointer != gcvNULL);
 #endif
 
     /* Find the database. */
@@ -884,7 +897,6 @@ gckKERNEL_RemoveProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID,
 
     /* Verify the arguments. */
     gcmkVERIFY_OBJECT(Kernel, gcvOBJ_KERNEL);
-    gcmkVERIFY_ARGUMENT(Pointer != gcvNULL);
 
     /* Decode type. */
     vidMemType = (Type & gcdDB_VIDEO_MEMORY_TYPE_MASK) >> gcdDB_VIDEO_MEMORY_TYPE_SHIFT;
@@ -1299,9 +1311,12 @@ gckKERNEL_DestroyProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID)
                 gcmkERR_BREAK(gckVIDMEM_HANDLE_Lookup(record->kernel, ProcessID,
                                                       handle, &nodeObject));
 
-                /* Unlock CPU. */
-                gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(record->kernel, nodeObject,
-                                                       ProcessID, gcvTRUE, gcvFALSE));
+                    /* Unlock CPU. */
+#if gcdENABLE_TTM
+                if (nodeObject->needUnmap)
+#endif
+                    gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(record->kernel, nodeObject,
+                                                          ProcessID, gcvTRUE, gcvFALSE));
 
                 gcmkVERIFY_OK(gckKERNEL_GetCurrentMMU(record->kernel, gcvTRUE, ProcessID, &mmu));
 
@@ -1408,6 +1423,31 @@ gckKERNEL_DestroyProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID)
                 break;
 #endif
 
+#if gcdENABLE_CLEAR_FENCE
+            case gcvDB_USER_FENCE:
+                {
+                    gcsUSER_FENCE_INFO_PTR fence_info = gcvNULL;
+                    gckDEVICE device = Kernel->device;
+
+                    fence_info = gckOS_ReleaseFenceRecordId(device, gcmPTR_TO_UINT64(record->data));
+
+                    gcmkERR_BREAK(gckOS_AcquireMutex(device->os,
+                                                     device->fenceListMutex,
+                                                     gcvINFINITE));
+
+                    if (fence_info)
+                        gcsLIST_Del(&fence_info->fenceLink);
+                    else
+                        gcmkPRINT("Failed to find the Fence record!\n");
+
+                    gcmkVERIFY_OK(gckOS_ReleaseMutex(device->os,
+                                                     device->fenceListMutex));
+
+                    gckOS_Free(device->os, (gctPOINTER)fence_info);
+                }
+                break;
+#endif
+
             default:
                 gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DATABASE,
                                "DB: Correcupted record=0x%08x type=%d",
@@ -1437,6 +1477,27 @@ gckKERNEL_DestroyProcessDB(gckKERNEL Kernel, gctUINT32 ProcessID)
     }
 
     gcmkONERROR(gckKERNEL_RemoveDatabaseFromList(Kernel, database, ProcessID));
+
+#if gcdENABLE_PERF_DISPATCH
+    {
+        gctUINT i;
+
+        gcmkPRINT("DISPATCH PERF for [%u]:", ProcessID);
+        gcmkPRINT("  id\ttotal\tfailed\taverage\tmaximum");
+        for (i = 0; i < gcvHAL_NUM_COMMAND_CODES; i++) {
+            gcsDISPATCH_PERF_RECORD *record = &database->dispatchPerfRecords[i];
+
+            if (record->mutex) {
+                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, record->mutex));
+                record->mutex = gcvNULL;
+            }
+
+            if (record->count != 0)
+                gcmkPRINT("  %u\t%llu\t%llu\t%llu\t%u", i,
+                          record->count, record->failed, record->cost / record->count, record->maximum);
+        }
+    }
+#endif
 
 OnError:
 OnExit:
@@ -1625,7 +1686,7 @@ OnError:
     return status;
 }
 
-void
+static void
 _DumpCounter(gcsDATABASE_COUNTERS *Counter, gctCONST_STRING Name)
 {
     gcmkPRINT("%s:", Name);

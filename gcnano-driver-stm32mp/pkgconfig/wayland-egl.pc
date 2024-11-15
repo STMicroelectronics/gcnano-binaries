@@ -1,0 +1,11 @@
+prefix=#PREFIX#
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: wayland-egl
+Description: Vivante wayland-egl library
+Requires: wayland-client
+Version: #VERSION#
+Libs: -L${libdir} -lEGL
+Cflags: -I${includedir}

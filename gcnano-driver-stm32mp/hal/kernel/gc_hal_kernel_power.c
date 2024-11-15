@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_precomp.h"
 
@@ -197,10 +196,10 @@ _TimerFunction(gctPOINTER Data)
     _Policy(dvfs, value, &scale);
 
     /* Set frequency and voltage. */
-    gcmkONERROR(gckOS_SetGPUFrequency(hardware->os, hardware->core, scale));
+    gcmkONERROR(gckOS_SetGPUFrequency(hardware->os, hardware, scale));
 
     /* Query real frequency. */
-    gcmkONERROR(gckOS_QueryGPUFrequency(hardware->os, hardware->core,
+    gcmkONERROR(gckOS_QueryGPUFrequency(hardware->os, hardware,
                                         &frequency, &dvfs->currentScale));
 
     _RecordFrequencyHistory(dvfs, frequency);
@@ -285,6 +284,7 @@ gckDVFS_Destroy(gckDVFS Dvfs)
 
     /* DestroyTimer. */
     gcmkVERIFY_OK(gckOS_DestroyTimer(Dvfs->os, Dvfs->timer));
+    Dvfs->timer = gcvNULL;
 
     gcmkOS_SAFE_FREE(Dvfs->os, Dvfs);
 

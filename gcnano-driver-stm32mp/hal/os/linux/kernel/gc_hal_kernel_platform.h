@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef _gc_hal_kernel_platform_h_
 #define _gc_hal_kernel_platform_h_
@@ -167,7 +166,7 @@ typedef struct _gcsMODULE_PARAMETERS {
 
     gctUINT                 allMapInOne;
 
-    gctUINT                 isrPoll;
+    gctUINT64               isrPoll;
 
     /* APB register offset to the register base address. */
     gctUINT64               registerAPB;
@@ -177,6 +176,12 @@ typedef struct _gcsMODULE_PARAMETERS {
 
     /* Struct device array. */
     struct device           *devices[gcdDEVICE_COUNT];
+
+    /* vGPU type and id. 0 means no support vGPU, 1 means mdev, 2 means SRIOV.*/
+    gctUINT32               vGPUType;
+    gctUINT32               vGPUId;
+
+    gctUINT32               cmdQueueSizeByPage;
 } gcsMODULE_PARAMETERS;
 
 typedef struct _gcsDMA_TRANS_INFO {

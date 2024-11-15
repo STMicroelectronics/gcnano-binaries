@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_kernel_h_
 #define __gc_hal_kernel_h_
@@ -87,25 +86,34 @@ extern "C" {
 #define gcdDYNAMIC_ALLOC_LOCAL_MEMORY 0
 #endif
 
+#ifndef gcdSUSPEND_RESUME_FROM_DISK
+#define gcdSUSPEND_RESUME_FROM_DISK   0
+#endif
+
+#if gcdENABLE_CLEAR_FENCE
+#include <linux/spinlock.h>
+#endif
 /*******************************************************************************
  ***** Stuck Dump Level ********************************************************/
 
 /*
  * Stuck Dump Level
  *
- * Level  1 ~  5 : NORMAL model, when recovery is enabled, stuck dump is invalid
- * Level 11 ~ 15 : FORCE model, whether recovery is enabled or not, driver will
+ * Level  1 ~  6 : NORMAL model, when recovery is enabled, stuck dump is invalid
+ * Level 11 ~ 16 : FORCE model, whether recovery is enabled or not, driver will
  *                 dump as level set
  *
  * NONE : Dump nothing when stuck happens.
  *
- * NEARBY_MEMORY : Dump GPU state and memory near stuck point.
- * USER_COMMAND  : Beside NEARBY_MEMORY, dump context buffer and user command
- *                 buffer.
- * STALL_COMMAND : Beside USER_COMMAND, commit will be stall to make sure command
- *                 causing stuck isn't missed.
- * ALL_COMMAND   : Beside USER_COMMAND, dump kernel command buffer.
- * ALL_CORE      : Dump all the cores with ALL_COMMAND level.
+ * NEARBY_MEMORY       : Dump GPU state and memory near stuck point.
+ * USER_COMMAND        : Beside NEARBY_MEMORY, dump context buffer and user
+ *                       command buffer.
+ * STALL_COMMAND       : Beside USER_COMMAND, commit will be stall to make sure
+ *                       command causing stuck isn't missed.
+ * KERNEL_COMMAND      : Beside USER_COMMAND, dump kernel command buffer.
+ * DEBUGREGISTER       : Beside KERNEL_COMMAND, dump debug registers info.
+ * SUBCOMMAND          : Beside DEBUGREGISTER, dump subcommand buffer.
+ *                       This level requires gcdDUMP_HW_SUBCOMMAND to be enabled.
  */
 typedef enum _gceSTUCK_DUMP_LEVEL {
     gcvSTUCK_DUMP_NONE = 0,
@@ -113,14 +121,16 @@ typedef enum _gceSTUCK_DUMP_LEVEL {
     gcvSTUCK_DUMP_NEARBY_MEMORY = 1,
     gcvSTUCK_DUMP_USER_COMMAND,
     gcvSTUCK_DUMP_STALL_COMMAND,
-    gcvSTUCK_DUMP_ALL_COMMAND,
-    gcvSTUCK_DUMP_ALL_CORE,
+    gcvSTUCK_DUMP_KERNEL_COMMAND,
+    gcvSTUCK_DUMP_DEBUGREGISTER,
+    gcvSTUCK_DUMP_SUBCOMMAND,
 
     gcvSTUCK_FORCE_DUMP_NEARBY_MEMORY = 11,
     gcvSTUCK_FORCE_DUMP_USER_COMMAND,
     gcvSTUCK_FORCE_DUMP_STALL_COMMAND,
-    gcvSTUCK_FORCE_DUMP_ALL_COMMAND,
-    gcvSTUCK_FORCE_DUMP_ALL_CORE,
+    gcvSTUCK_FORCE_DUMP_KERNEL_COMMAND,
+    gcvSTUCK_FORCE_DUMP_DEBUGREGISTER,
+    gcvSTUCK_FORCE_DUMP_SUBCOMMAND,
 } gceSTUCK_DUMP_LEVEL;
 
 /******************************************************************************
@@ -128,6 +138,15 @@ typedef enum _gceSTUCK_DUMP_LEVEL {
 
 #define gcvPAGE_TABLE_DIRTY_BIT_OTHER (1 << 0)
 #define gcvPAGE_TABLE_DIRTY_BIT_FE    (1 << 1)
+
+/******************************************************************************
+ ***** GPU Virtualization ****************************************************/
+
+typedef enum _gceVGPU_TYPE {
+    gcvVGPU_NONE = 0,
+    gcvVGPU_MDEV,
+    gcvVGPU_SRIOV,
+} gceVGPU_TYPE;
 
 /******************************************************************************
  ***** Process Database Management ********************************************/
@@ -145,6 +164,9 @@ typedef enum _gceDATABASE_TYPE {
     gcvDB_SHBUF,               /* Shared buffer. */
 #if gcdENABLE_SW_PREEMPTION
     gcvDB_PRIORITY,
+#endif
+#if gcdENABLE_CLEAR_FENCE
+    gcvDB_USER_FENCE,
 #endif
 
     gcvDB_NUM_TYPES,
@@ -176,6 +198,18 @@ typedef struct _gcsDATABASE_RECORD {
     gctPHYS_ADDR                        physical;
     gctSIZE_T                           bytes;
 } gcsDATABASE_RECORD;
+
+#if gcdENABLE_PERF_DISPATCH
+typedef struct _gcsDISPATCH_PERF_RECORD {
+    gctUINT64 count;
+    gctUINT64 failed;
+
+    gctUINT64 cost;
+    gctUINT64 maximum;
+
+    gctPOINTER mutex;
+} gcsDISPATCH_PERF_RECORD;
+#endif
 
 typedef struct _gcsDATABASE            *gcsDATABASE_PTR;
 typedef struct _gcsDATABASE {
@@ -215,6 +249,10 @@ typedef struct _gcsDATABASE {
 
     /* Per process mmu. */
     gckMMU                              mmu;
+
+#if gcdENABLE_PERF_DISPATCH
+    gcsDISPATCH_PERF_RECORD     dispatchPerfRecords[gcvHAL_NUM_COMMAND_CODES];
+#endif
 } gcsDATABASE;
 
 typedef struct _gcsFDPRIVATE *gcsFDPRIVATE_PTR;
@@ -223,6 +261,10 @@ typedef struct _gcsFDPRIVATE {
 } gcsFDPRIVATE;
 
 typedef struct _gcsRECORDER *gckRECORDER;
+
+typedef struct _gcsPARSER *gckPARSER;
+
+typedef struct _gcsPARSER_HANDLER *gckPARSER_HANDLER;
 
 typedef enum _gceEVENT_FAULT {
     gcvEVENT_NO_FAULT,
@@ -280,6 +322,15 @@ gckKERNEL_DumpProcessDB(gckKERNEL Kernel);
 /* Dump the video memory usage for process specified. */
 gceSTATUS
 gckKERNEL_DumpVidMemUsage(gckKERNEL Kernel, gctINT32 ProcessID);
+
+/* Dump GPU state. */
+void
+gckKERNEL_DumpState(gckKERNEL Kernel);
+
+gceSTATUS
+gckKERNEL_DeleteRecord(gckKERNEL Kernel, gcsDATABASE_PTR Database,
+                       gceDATABASE_TYPE Type, gctPOINTER Data,
+                       gctSIZE_T_PTR Bytes OPTIONAL);
 
 gceSTATUS
 gckKERNEL_FindDatabase(gckKERNEL Kernel,
@@ -358,6 +409,16 @@ struct _gckDB {
 
     gctPOINTER                  refcnt;
 };
+
+#if gcdENABLE_TTM
+typedef struct _gcsBUFSYNC {
+    gckVIDMEM_NODE nodeObj;
+    gctSIZE_T size;
+    struct _gcsBUFSYNC *next;
+} gcsBUFSYNC;
+
+typedef struct _gcsBUFSYNC *gctBUFSYNC;
+#endif
 
 /* gckKERNEL object. */
 struct _gckKERNEL {
@@ -468,6 +529,11 @@ struct _gckKERNEL {
     gckVIDMEM_BLOCK             vidMemBlock;
     gctPOINTER                  vidMemBlockMutex;
 
+#if gcdENABLE_TTM
+    gctBUFSYNC                  bufSyncList;
+    gctPOINTER                  bufSyncListMutex;
+#endif
+
     gctADDRESS                  contiguousBaseAddresses[gcdSYSTEM_RESERVE_COUNT];
     gctADDRESS                  lowContiguousBaseAddress;
     gctADDRESS                  externalBaseAddress;
@@ -502,6 +568,10 @@ struct _gckKERNEL {
     gctUINT32                   nextMmuDescId;
     gctUINT32                   *mmuDescMap;
     gctPOINTER                  mmuDescMutex;
+
+    /* vGPU type and id. */
+    gceVGPU_TYPE                vGPUType;
+    gctUINT32                   vGPUId;
 
 #if gcdENABLE_SW_PREEMPTION
     gctPOINTER                  priorityQueueMutex[gcdMAX_PRIORITY_QUEUE_NUM];
@@ -578,8 +648,8 @@ struct _gckCOMMAND {
 
     gceHW_FE_TYPE               feType;
 
-    /* Number of bytes per page. */
-    gctUINT32                   pageSize;
+    /* Number of bytes. */
+    gctUINT32                   size;
 
     /* Current pipe select. */
     gcePIPE_SELECT              pipeSelect;
@@ -1020,6 +1090,9 @@ typedef union _gcuVIDMEM_NODE {
         /* Link in _gckMMU::nodeList. */
         gcsLISTHEAD             lockLink;
 
+        /* This node is GPU read only. */
+        gctBOOL                 gpuRO;
+
     } VidMem;
 
     struct _gcsVIDMEM_NODE_VIRTUAL_CHUNK {
@@ -1202,6 +1275,11 @@ typedef struct _gcsVIDMEM_NODE {
     gctUINT32                   tsCacheMode;
     gctUINT64                   clearValue;
 
+    gctBOOL                     dirty;
+    gctBOOL                     cached;
+    gctBOOL                     needUnmap;
+    gctINT32                    mappedOffset;
+
 #if gcdCAPTURE_ONLY_MODE
     gctSIZE_T                   captureSize;
     gctPOINTER                  captureLogical;
@@ -1214,6 +1292,7 @@ typedef struct _gcsVIDMEM_NODE {
     gcsVIDMEM_NODE_MIRROR       mirror;
 #endif
 
+    gctPOINTER                  bo;
     gckVIDMEM_PIDINFO           pidInfo;
 
 } gcsVIDMEM_NODE;
@@ -1269,6 +1348,9 @@ typedef struct _gcsUSER_FENCE_INFO {
     gctBOOL    use64BitFence;
 } gcsUSER_FENCE_INFO;
 #endif
+
+/* Define the size of VIP_SRAM_SIZE_ARRAY[] in struct gcsFEATURE_DATABASE. */
+#define gcdVIP_SRAM_ARRAY_SIZE  9
 
 /* A gckDEVICE is a group of cores (gckKERNEL in software). */
 typedef struct _gcsDEVICE {
@@ -1402,6 +1484,9 @@ typedef struct _gcsDEVICE {
     /* Print the memory info or not. */
     gctBOOL                     showMemInfo;
 
+    /* Process page table enable or not. */
+    gctBOOL                     processPageTable;
+
 #if gcdENABLE_SW_PREEMPTION
     gctPOINTER                  atomPriorityID;
     gctPOINTER                  preemptThread[gcvCORE_COUNT];
@@ -1411,6 +1496,8 @@ typedef struct _gcsDEVICE {
 #if gcdENABLE_CLEAR_FENCE
     gcsLISTHEAD                 fenceList;
     gctPOINTER                  fenceListMutex;
+    gctPOINTER                  fenceIdr;
+    spinlock_t                  fenceIdrLock;
 #endif
 } gcsDEVICE;
 
@@ -1428,6 +1515,7 @@ gckVIDMEM_Construct(gckOS Os,
 gceSTATUS
 gckVIDMEM_Destroy(gckVIDMEM Memory);
 
+/* video memory node handle functions. */
 gceSTATUS
 gckVIDMEM_HANDLE_Allocate(gckKERNEL Kernel, gckVIDMEM_NODE Node, gctUINT32 *Handle);
 
@@ -1448,6 +1536,14 @@ gckVIDMEM_HANDLE_Lookup2(gckKERNEL Kernel,
                          gcsDATABASE_PTR Database,
                          gctUINT32 Handle,
                          gckVIDMEM_NODE *Node);
+
+#if gcdENABLE_VIDEO_MEMORY_MIRROR
+gceSTATUS
+gckVIDMEM_NODE_AllocateMirrorBuf(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject,
+                           gceMIRROR_TYPE MirrorType);
+gceSTATUS
+gckVIDMEM_NODE_FreeMirrorBuf(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject);
+#endif
 
 /* video memory node functions. */
 gceSTATUS
@@ -1631,6 +1727,22 @@ gckVIDMEM_NODE_GetOffset(gckKERNEL Kernel,
                          gckVIDMEM_NODE NodeObject,
                          gctSIZE_T *Offset);
 
+#if gcdENABLE_TTM
+gceSTATUS
+gckVIDMEM_Validate(gckKERNEL Kernel,
+                        gctUINT32 NodeHandle, gctUINT32 ProcessID,
+                        gctUINT32 Pool);
+
+gceSTATUS
+gckVIDMEM_MoveClean(gckKERNEL kernel, gckVIDMEM_NODE newObject, gctUINT32 newHandle);
+
+gceSTATUS
+gckVIDMEM_Exchange(gckKERNEL Kernel, gckVIDMEM_NODE oldObject, gckVIDMEM_NODE newObject);
+
+void
+gckVIDMEM_RevokeMap(gckVIDMEM_NODE nodeObj);
+#endif
+
 gceSTATUS
 gckOS_CreateKernelMapping(gckOS Os,
                           gctPHYS_ADDR Physical,
@@ -1683,6 +1795,10 @@ gckKERNEL_AllocateVideoMemory(gckKERNEL Kernel,
                               gcePOOL *Pool,
                               gckVIDMEM_NODE *NodeObject);
 
+/* Config power management form dispatch */
+gceSTATUS
+gckKERNEL_ConfigPowerManagement(gckKERNEL Kernel, gcsHAL_INTERFACE *Interface);
+
 gceSTATUS
 gckHARDWARE_QchannelPowerControl(gckHARDWARE Hardware,
                                  gctBOOL ClockState,
@@ -1709,6 +1825,16 @@ gckHARDWARE_QueryMcfe(gckHARDWARE Hardware,
                       const gceMCFE_CHANNEL_TYPE * Channels[],
                       gctUINT32 *Count);
 
+gceSTATUS
+gckHARDWARE_QchannelFlushCache(gckHARDWARE Hardware);
+
+#if gcdSECURITY || gcdENABLE_TRUST_APPLICATION
+gceSTATUS
+gckKERNEL_SecurityAllocateSecurityMemory(IN gckKERNEL  Kernel,
+                                         IN gctUINT32  Bytes,
+                                         OUT gctUINT32 *Handle);
+#endif
+
 #if gcdSECURITY
 gceSTATUS
 gckKERNEL_SecurityOpen(gckKERNEL Kernel, gctUINT32 GPU, gctUINT32 *Channel);
@@ -1727,11 +1853,6 @@ gckKERNEL_SecurityCallService(gctUINT32 Channel, gcsTA_INTERFACE *Interface);
 
 gceSTATUS
 gckKERNEL_SecurityStartCommand(gckKERNEL Kernel);
-
-gceSTATUS
-gckKERNEL_SecurityAllocateSecurityMemory(gckKERNEL Kernel,
-                                         gctUINT32 Bytes,
-                                         gctUINT32 *Handle);
 
 gceSTATUS
 gckKERNEL_SecurityExecute(gckKERNEL Kernel, gctPOINTER Buffer, gctUINT32 Bytes);
@@ -1845,6 +1966,11 @@ gckKERNEL_GetCurrentMMU(gckKERNEL Kernel, gctBOOL FromUser,
 gceSTATUS
 gckKERNEL_SwitchMMU(gckKERNEL Kernel, gctBOOL Shared, gckMMU Mmu);
 
+#if gcdENABLE_TTM
+gceSTATUS
+gckKERNEL_SyncBufList(gckKERNEL Kernel);
+#endif
+
 /*******************************************************************************
  ******************************* gckCONTEXT Object *****************************
  ******************************************************************************/
@@ -1905,6 +2031,21 @@ gckRECORDER_Dump(gckRECORDER Recorder);
 
 gceSTATUS
 gckRECORDER_UpdateMirror(gckRECORDER Recorder, gctUINT32 State, gctUINT32 Data);
+
+/*******************************************************************************
+ ****************************** gckPARSER Object *****************************
+ ******************************************************************************/
+gceSTATUS
+gckPARSER_Parse(gckPARSER Parser, gctUINT8_PTR Buffer, gctUINT32 Bytes);
+
+gceSTATUS
+gckPARSER_RegisterCommandHandler(gckPARSER Parser, gckPARSER_HANDLER Handler);
+
+gceSTATUS
+gckPARSER_Construct(gckOS Os, gckPARSER_HANDLER Handler, gckPARSER *Parser);
+
+void
+gckPARSER_Destroy(gckOS Os, gckPARSER Parser);
 
 /******************************************************************************
  ****************************** gckCOMMAND Object *****************************
@@ -2007,6 +2148,10 @@ gckCOMMAND_Detach(gckCOMMAND Command, gckCONTEXT Context);
 gceSTATUS
 gckCOMMAND_CheckFlushMMU(gckCOMMAND Command, gckHARDWARE Hardware);
 
+/* Switch to security first, then switch to non-security mode. */
+gceSTATUS
+gckCOMMAND_SwitchSecurityMode(gckCOMMAND Command, gckHARDWARE Hardware);
+
 void
 gcsLIST_Init(gcsLISTHEAD_PTR Node);
 
@@ -2085,6 +2230,10 @@ gceSTATUS
 gckDEVICE_SetCommandQueue(gckDEVICE Device,
                           gceHARDWARE_TYPE Type,
                           gckCOMMAND Command);
+
+gceSTATUS
+gckDEVICE_Version(gckDEVICE Device,
+                  gcsHAL_INTERFACE_PTR Interface);
 
 #if gcdENABLE_TRUST_APPLICATION
 gceSTATUS

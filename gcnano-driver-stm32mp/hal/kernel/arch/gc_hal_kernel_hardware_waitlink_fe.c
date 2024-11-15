@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal.h"
 #include "gc_hal_kernel.h"
@@ -442,7 +441,7 @@ gckWLFE_DoneInvalidatePipe(gckHARDWARE Hardware)
     gctUINT32 resume;
     gctUINT32 bytes;
     gctUINT32 idle;
-    gctUINT32 pageSize = Hardware->kernel->command->pageSize;
+    gctUINT32 size = Hardware->kernel->command->size;
 
     gcmkASSERT(Hardware->wlFE);
 
@@ -461,7 +460,7 @@ gckWLFE_DoneInvalidatePipe(gckHARDWARE Hardware)
                                        &resume));
 
     gcmkVERIFY_OK(gckWLFE_WaitLink(Hardware, gcvNULL, gcvINVALID_ADDRESS,
-                                   resume & (pageSize - 1),
+                                   resume & (size - 1),
                                    &bytes, gcvNULL, gcvNULL));
 
     /* Start Command Parser. */

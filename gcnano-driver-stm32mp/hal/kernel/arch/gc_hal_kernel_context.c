@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 /*
  *
@@ -516,7 +515,7 @@ _FlushPipe(gckCONTEXT Context, gctUINT32 Index, gcePIPE_SELECT Pipe)
  32) ? ~0U : (~(~0U << ((1 ? 3:3) - (0 ? 3:3) + 1))))))) << (0 ? 3:3))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 3:3) - (0 ? 3:3) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 3:3) - (0 ? 3:3) + 1))))))) << (0 ? 3:3)));
         } else {
-            *buffer++ = (computeOnly ? 0 :
+            gctUINT32 flush = (computeOnly ? 0 :
                 ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0))) |
@@ -535,6 +534,13 @@ _FlushPipe(gckCONTEXT Context, gctUINT32 Index, gcePIPE_SELECT Pipe)
                 | ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 5:5) - (0 ? 5:5) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 5:5) - (0 ? 5:5) + 1))))))) << (0 ? 5:5))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 5:5) - (0 ? 5:5) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 5:5) - (0 ? 5:5) + 1))))))) << (0 ? 5:5)));
+            if (Context->hardware->identity.customerID == 0x59) {
+                flush |= ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 2:2) - (0 ? 2:2) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 2:2) - (0 ? 2:2) + 1))))))) << (0 ? 2:2))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 2:2) - (0 ? 2:2) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 2:2) - (0 ? 2:2) + 1))))))) << (0 ? 2:2)))
+                    /* | gcmSETFIELDVALUE(0, AQ_FLUSH, TL1_CACHE, ENABLE) */;
+            }
+            *buffer++ = flush;
         }
 
         if (hwTFB && !computeOnly) {
@@ -1567,7 +1573,19 @@ _InitializeNoShaderAndPixelEngine(gckCONTEXT Context)
  32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
  4, gcvFALSE, gcvFALSE);
 
+        if (hardware->kernel->device->coreNum > 4)
+            index += _State(Context, index, (0x03990 >> 2) + (0 << 2), ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))) | (((gctUINT32) ((gctUINT32) (clusterAliveMask) & ((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
+ 4, gcvFALSE, gcvFALSE);
+
         index += _State(Context, index, (0x03910 >> 2) + (0 << 2), ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))) | (((gctUINT32) ((gctUINT32) (clusterAliveMask) & ((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
+ 4, gcvFALSE, gcvFALSE);
+
+        if (hardware->kernel->device->coreNum > 4)
+            index += _State(Context, index, (0x03980 >> 2) + (0 << 2), ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))) | (((gctUINT32) ((gctUINT32) (clusterAliveMask) & ((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
  4, gcvFALSE, gcvFALSE);
@@ -1579,7 +1597,7 @@ _InitializeNoShaderAndPixelEngine(gckCONTEXT Context)
     }
 
     /* Current context pointer. */
-#if gcdDEBUG
+#if gcdDEBUG 
     index += _State(Context, index, 0x03850 >> 2, 0x00000000, 1, gcvFALSE, gcvFALSE);
 #  endif
 
@@ -1628,7 +1646,7 @@ _InitializeNoShaderAndPixelEngine(gckCONTEXT Context)
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16)));
 
-         if (!hardware->largeVA)
+         if (!hardware->largeVAVersion)
              mmuConfig |= ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 26:26) - (0 ? 26:26) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 26:26) - (0 ? 26:26) + 1))))))) << (0 ? 26:26))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 26:26) - (0 ? 26:26) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 26:26) - (0 ? 26:26) + 1))))))) << (0 ? 26:26)));
@@ -1846,7 +1864,19 @@ _InitializeContextBuffer(gckCONTEXT Context)
  32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
  4, gcvFALSE, gcvFALSE);
 
+        if (hardware->kernel->device->coreNum > 4)
+            index += _State(Context, index, 0x03990 >> 2, ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))) | (((gctUINT32) ((gctUINT32) (clusterAliveMask[i]) & ((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
+ 4, gcvFALSE, gcvFALSE);
+
         index += _State(Context, index, 0x03910 >> 2, ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))) | (((gctUINT32) ((gctUINT32) (clusterAliveMask[i]) & ((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
+ 4, gcvFALSE, gcvFALSE);
+
+        if (hardware->kernel->device->coreNum > 4)
+            index += _State(Context, index, 0x03980 >> 2, ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))) | (((gctUINT32) ((gctUINT32) (clusterAliveMask[i]) & ((gctUINT32) ((((1 ? 7:0) - (0 ? 7:0) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 7:0) - (0 ? 7:0) + 1))))))) << (0 ? 7:0))),
  4, gcvFALSE, gcvFALSE);
@@ -1858,7 +1888,7 @@ _InitializeContextBuffer(gckCONTEXT Context)
     }
 
     /* Current context pointer. */
-#if gcdDEBUG
+#if gcdDEBUG 
     index += _State(Context, index, 0x03850 >> 2, 0x00000000, 1, gcvFALSE, gcvFALSE);
 #  endif
 
@@ -2166,8 +2196,14 @@ _InitializeContextBuffer(gckCONTEXT Context)
     }
 
     index += _State(Context, index, 0x03A00 >> 2, ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 31:28) - (0 ? 31:28) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 31:28) - (0 ? 31:28) + 1))))))) << (0 ? 31:28))) | (((gctUINT32) ((gctUINT32) (gpuEnableMask) & ((gctUINT32) ((((1 ? 31:28) - (0 ? 31:28) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 31:28) - (0 ? 31:28) + 1))))))) << (0 ? 31:28))) | (((gctUINT32) ((gctUINT32) (gpuEnableMask & 0xF) & ((gctUINT32) ((((1 ? 31:28) - (0 ? 31:28) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 31:28) - (0 ? 31:28) + 1))))))) << (0 ? 31:28))),
+ 1, gcvFALSE, gcvFALSE);
+
+    if (hardware->kernel->device->coreNum > 4)
+        index += _State(Context, index, 0x03A14 >> 2, ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 15:0) - (0 ? 15:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 15:0) - (0 ? 15:0) + 1))))))) << (0 ? 15:0))) | (((gctUINT32) ((gctUINT32) ((gpuEnableMask & 0xFFFF0) >> 4) & ((gctUINT32) ((((1 ? 15:0) - (0 ? 15:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 15:0) - (0 ? 15:0) + 1))))))) << (0 ? 15:0))),
  1, gcvFALSE, gcvFALSE);
 
     index += _State(Context, index, 0x03A04 >> 2, 0x00000000, 1, gcvFALSE, gcvFALSE);
@@ -2723,7 +2759,7 @@ _InitializeContextBuffer(gckCONTEXT Context)
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16)));
 
-         if (!hardware->largeVA)
+         if (!hardware->largeVAVersion)
              mmuConfig |= ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 26:26) - (0 ? 26:26) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 26:26) - (0 ? 26:26) + 1))))))) << (0 ? 26:26))) | (((gctUINT32) (0x1 & ((gctUINT32) ((((1 ? 26:26) - (0 ? 26:26) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 26:26) - (0 ? 26:26) + 1))))))) << (0 ? 26:26)));
@@ -2912,9 +2948,8 @@ _AllocateContextBuffer(gckCONTEXT Context, gcsCONTEXT_PTR Buffer)
     allocFlag = gcvALLOC_FLAG_CACHEABLE;
 # endif
 
-#if gcdENABLE_40BIT_VA
-    allocFlag |= gcvALLOC_FLAG_32BIT_VA;
-# endif
+    if (Context->hardware->largeVAVersion)
+        allocFlag |= gcvALLOC_FLAG_32BIT_VA;
 
     /* Allocate video memory node for command buffers. */
     gcmkONERROR(gckKERNEL_AllocateVideoMemory(kernel, 64,

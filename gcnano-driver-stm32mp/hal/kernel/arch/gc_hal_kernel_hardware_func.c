@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal.h"
 #include "gc_hal_kernel.h"
@@ -2453,6 +2452,7 @@ _FuncRelease_MMU(gcsFUNCTION_EXECUTION_PTR Execution)
         }
 
         gcmkVERIFY_OK(gckOS_Free(hardware->os, (gctPOINTER)Execution->funcCmd));
+        Execution->funcCmd = gcvNULL;
     }
 
     return gcvSTATUS_OK;
@@ -3115,7 +3115,7 @@ _FuncInit_MMU(gcsFUNCTION_EXECUTION_PTR Execution)
     mode = gcvMMU_MODE_4K;
 #endif
 
-    if (hardware->largeVA)
+    if (hardware->largeVAVersion == gcv40BIT_VA_40BIT_PA_0)
         mode = gcvMMU_MODE_4K;
 
     if (!gckHARDWARE_IsFeatureAvailable(hardware,
@@ -3135,9 +3135,8 @@ _FuncInit_MMU(gcsFUNCTION_EXECUTION_PTR Execution)
     flags |= gcvALLOC_FLAG_CACHEABLE;
 #endif
 
-#if gcdENABLE_40BIT_VA
-    flags |= gcvALLOC_FLAG_32BIT_VA;
-#endif
+    if (hardware->largeVAVersion)
+        flags |= gcvALLOC_FLAG_32BIT_VA;
 
     status = gckOS_QueryOption(hardware->os, "mmuCmdPool", &data);
     if (gcmIS_SUCCESS(status))
@@ -3544,6 +3543,7 @@ _FuncRelease_Flush(gcsFUNCTION_EXECUTION_PTR Execution)
         }
 
         gcmkVERIFY_OK(gckOS_Free(hardware->os, (gctPOINTER)Execution->funcCmd));
+        Execution->funcCmd = gcvNULL;
     }
 
     return gcvSTATUS_OK;
@@ -3573,9 +3573,8 @@ _FuncInit_Flush(gcsFUNCTION_EXECUTION_PTR Execution)
     allocFlag = gcvALLOC_FLAG_CACHEABLE;
 #endif
 
-#if gcdENABLE_40BIT_VA
-    allocFlag |= gcvALLOC_FLAG_32BIT_VA;
-#endif
+    if (hardware->largeVAVersion)
+        allocFlag |= gcvALLOC_FLAG_32BIT_VA;
 
     Execution->funcCmdCount = 1;
 
@@ -3729,6 +3728,7 @@ _FuncInit_FlopReset(gcsFUNCTION_EXECUTION_PTR Execution)
 # endif
 
 #if gcdFLOP_RESET_PPU
+    /* PPU is always there. */
     doPPU = gcvTRUE;
     Execution->funcCmdCount++;
 # endif
@@ -3882,6 +3882,7 @@ _FuncRelease_PPU(gcsFUNCTION_EXECUTION_PTR Execution)
         }
 
         gcmkVERIFY_OK(gckOS_Free(hardware->os, (gctPOINTER)Execution->funcCmd));
+        Execution->funcCmd = gcvNULL;
     }
 
     return gcvSTATUS_OK;
@@ -5210,6 +5211,7 @@ _FuncRelease_PPU_0xA0(gcsFUNCTION_EXECUTION_PTR Execution)
             }
         }
         gcmkVERIFY_OK(gckOS_Free(hardware->os, (gctPOINTER)Execution->funcCmd));
+        Execution->funcCmd = gcvNULL;
     }
 
     return gcvSTATUS_OK;
@@ -6205,6 +6207,7 @@ _FuncRelease_USC(gcsFUNCTION_EXECUTION_PTR Execution)
             }
         }
         gcmkVERIFY_OK(gckOS_Free(hardware->os, (gctPOINTER)Execution->funcCmd));
+        Execution->funcCmd = gcvNULL;
     }
 
     return gcvSTATUS_OK;
@@ -6792,6 +6795,7 @@ _FuncRelease_USC2(gcsFUNCTION_EXECUTION_PTR Execution)
             }
         }
         gcmkVERIFY_OK(gckOS_Free(hardware->os, (gctPOINTER)Execution->funcCmd));
+        Execution->funcCmd = gcvNULL;
     }
 
     return gcvSTATUS_OK;

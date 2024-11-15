@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal.h"
 #include "gc_hal_kernel.h"
@@ -110,8 +109,6 @@
 /* Queue size. */
 #define gcdNUM_RECORDS 6
 
-typedef struct _gcsPARSER_HANDLER *gckPARSER_HANDLER;
-
 typedef void (*HandlerFunction)(gckPARSER_HANDLER Handler,
                                 gctUINT32 Addr,
                                 gctUINT32 Data);
@@ -123,7 +120,6 @@ typedef struct _gcsPARSER_HANDLER {
     HandlerFunction function;
 } gcsPARSER_HANDLER;
 
-typedef struct _gcsPARSER *gckPARSER;
 typedef struct _gcsPARSER {
     gctUINT8_PTR      currentCmdBufferAddr;
 

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_profiler_h_
 #define __gc_hal_profiler_h_
@@ -759,23 +758,23 @@ enum gceVPG {
 #define VPNC_NN_TOTAL_IDLE_CYCLE_CORE13         (VPNG_NN + 40)
 #define VPNC_NN_TOTAL_IDLE_CYCLE_CORE14         (VPNG_NN + 41)
 #define VPNC_NN_TOTAL_IDLE_CYCLE_CORE15         (VPNG_NN + 42)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE16         (VPNG_NN + 43)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE17         (VPNG_NN + 44)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE18         (VPNG_NN + 45)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE19         (VPNG_NN + 46)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE20         (VPNG_NN + 47)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE21         (VPNG_NN + 48)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE22         (VPNG_NN + 49)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE23         (VPNG_NN + 50)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE24         (VPNG_NN + 51)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE25         (VPNG_NN + 52)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE26         (VPNG_NN + 53)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE27         (VPNG_NN + 54)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE28         (VPNG_NN + 55)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE29         (VPNG_NN + 56)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE30         (VPNG_NN + 57)
-#define VPNC_NN_TOTAL_IDLE_CYCLE_CORE31         (VPNG_NN + 58)
-#define VPNC_NN_COUNT                           (VPNC_NN_TOTAL_IDLE_CYCLE_CORE31 - VPNG_NN)
+#define VPNC_NN_WAIT_FOR_IN_EVENT_CYCLE         (VPNG_NN + 43)
+#define VPNC_NN_WAIT_FOR_OUT_EVENT_CYCLE        (VPNG_NN + 44)
+#define VPNC_NN_WAIT_FOR_IN_EVENT_CYCLE_OVFL    (VPNG_NN + 45)
+#define VPNC_NN_WAIT_FOR_OUT_EVENT_CYCLE_OVFL   (VPNG_NN + 46)
+#define VPNC_NN_WAIT_FOR_IN0_EVENT_CYCLE        (VPNG_NN + 47)
+#define VPNC_NN_WAIT_FOR_IN1_EVENT_CYCLE        (VPNG_NN + 48)
+#define VPNC_NN_WAIT_FOR_IN0_EVENT_CYCLE_OVFL   (VPNG_NN + 49)
+#define VPNC_NN_WAIT_FOR_IN1_EVENT_CYCLE_OVFL   (VPNG_NN + 50)
+#define VPNC_NN_WAIT_FOR_OUT0_EVENT_CYCLE       (VPNG_NN + 51)
+#define VPNC_NN_WAIT_FOR_OUT1_EVENT_CYCLE       (VPNG_NN + 52)
+#define VPNC_NN_WAIT_FOR_OUT2_EVENT_CYCLE       (VPNG_NN + 53)
+#define VPNC_NN_WAIT_FOR_OUT0_EVENT_CYCLE_OVFL  (VPNG_NN + 54)
+#define VPNC_NN_WAIT_FOR_OUT1_EVENT_CYCLE_OVFL  (VPNG_NN + 55)
+#define VPNC_NN_WAIT_FOR_OUT2_EVENT_CYCLE_OVFL  (VPNG_NN + 56)
+#define VPNC_NN_IDLE_CYCLE                      (VPNG_NN + 57)
+#define VPNC_NN_IDLE_CYCLE_OVFL                 (VPNG_NN + 58)
+#define VPNC_NN_COUNT                           (VPNC_NN_IDLE_CYCLE_OVFL - VPNG_NN)
 
 /* HW: TP Probe Counters. */
 #define VPNC_TP_LAYER_ID                      (VPNG_TP + 1)
@@ -938,7 +937,7 @@ enum gceVPG {
             gctUINT32_PTR Memory             = memory;                                   \
             gctUINT32     total_probe_number = 0;                                        \
             counter                          = 0;                                        \
-            gcmONERROR(gcoPROFILER_GetProbeNumber(Hardware, &total_probe_number));       \
+            gcmONERROR(gcoPROFILER_GetProbeNumber(Profiler, &total_probe_number));       \
             Memory = memory + total_probe_number * CoreId * (1 << clusterIDWidth);       \
             for (i = 0; i < (gctUINT32)(1 << clusterIDWidth); i++) {                     \
                 counter += *(Memory + (counterId + offset) * (1 << clusterIDWidth) + i); \
@@ -957,7 +956,7 @@ enum gceVPG {
             gctUINT32 max_counter = 0;                                                          \
                                                                                                 \
             counter = 0;                                                                        \
-            gcmONERROR(gcoPROFILER_GetProbeNumber(Hardware, &total_probe_number));              \
+            gcmONERROR(gcoPROFILER_GetProbeNumber(Profiler, &total_probe_number));              \
             Memory = memory + total_probe_number * CoreId * (1 << clusterIDWidth);              \
             for (i = 0; i < (gctUINT32)(1 << clusterIDWidth); i++) {                            \
                 if (max_counter < *(Memory + (counterId + offset) * (1 << clusterIDWidth) + i)) \
@@ -977,7 +976,7 @@ enum gceVPG {
             gctUINT32 total_probe_number = 0;                                                   \
             gctUINT32 min_counter = 0;                                                          \
             counter = 0;                                                                        \
-            gcmONERROR(gcoPROFILER_GetProbeNumber(Hardware, &total_probe_number));              \
+            gcmONERROR(gcoPROFILER_GetProbeNumber(Profiler, &total_probe_number));              \
             Memory = memory + total_probe_number * CoreId * (1 << clusterIDWidth);              \
             min_counter = *(Memory + (counterId + offset) * (1 << clusterIDWidth));             \
             for (i = 0; i < (gctUINT32)(1 << clusterIDWidth); i++) {                            \
@@ -1016,7 +1015,7 @@ enum gceVPG {
             gctUINT32     i;                                                                           \
             gctUINT32_PTR Memory             = memory;                                                 \
             gctUINT32     total_probe_number = 0;                                                      \
-            gcmONERROR(gcoPROFILER_GetProbeNumber(Hardware, &total_probe_number));                     \
+            gcmONERROR(gcoPROFILER_GetProbeNumber(Profiler, &total_probe_number));                     \
             Memory = memory + total_probe_number * CoreId * (1 << clusterIDWidth);                     \
             for (i = 0; i < (gctUINT32)(1 << clusterIDWidth); i++) {                                   \
                 maxLatency +=                                                                          \
@@ -1103,6 +1102,9 @@ struct _gcoPROFILER {
     gctUINT32                   rdByte;
     gctUINT32                   wrByte;
     gctUINT32                   busyCycle;
+    gctUINT64                   totalCycle;
+    gctUINT64_PTR               globaltimerStart;
+    gctUINT64_PTR               globaltimerEnd;
 
     /*query some features from hw*/
     gctUINT32                   coreCount;
@@ -1112,6 +1114,9 @@ struct _gcoPROFILER {
     gctBOOL                     psRenderPixelFix;
     gctBOOL                     axiBus128bits;
     gctBOOL                     bZDP3;
+
+    /*flag for more than 32bit VA*/
+    gctBOOL                     enableHighAddress;
 };
 
 typedef struct _gcsPROBESTATES {
@@ -1174,7 +1179,7 @@ gceSTATUS
 gcoPROFILER_Flush(IN gcoPROFILER Profiler);
 
 gceSTATUS
-gcoPROFILER_GetProbeNumber(IN gcoHARDWARE Hardware,
+gcoPROFILER_GetProbeNumber(IN gcoPROFILER Profiler,
                            OUT gctUINT32 *TotalProbeNumber);
 
 gctUINT32

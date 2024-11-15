@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_linux.h"
 #include "gc_hal_kernel_allocator.h"
@@ -214,6 +213,7 @@ import_page_map(gckOS Os, struct device *dev, struct um_desc *um,
 {
     int i;
     int result;
+    int ret;
     struct page **pages;
 
     if ((addr & (cache_line_size() - 1)) || (size & (cache_line_size() - 1)))
@@ -250,6 +250,19 @@ import_page_map(gckOS Os, struct device *dev, struct um_desc *um,
 
     up_read(&current_mm_mmap_sem);
 
+    /* Checking whether Physical is greater than 4G. */
+    if (Os->device->platform->flagBits & gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS) {
+        gctPHYS_ADDR_T address;
+
+        for (i = 0; i < page_count; i++) {
+            address = page_to_phys(pages[i]);
+            if (address > 0xFFFFFFFFu) {
+                ret = -EINVAL;
+                goto error;
+            }
+        }
+    }
+
     if (result < page_count) {
         for (i = 0; i < result; i++) {
             if (pages[i])
@@ -275,19 +288,20 @@ import_page_map(gckOS Os, struct device *dev, struct um_desc *um,
 
     if (!um->alloc_from_res) {
 #if gcdUSE_LINUX_SG_TABLE_API
-# if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
         size_t max_segment = SIZE_MAX;
 
         max_segment = dma_max_mapping_size(dev);
 # endif
 
-# if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
         result = sg_alloc_table_from_pages_segment(&um->sgt, pages, page_count, addr & ~PAGE_MASK,
                                                    size, max_segment, GFP_KERNEL | gcdNOWARN);
 # elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
         result = PTR_ERR_OR_ZERO(__sg_alloc_table_from_pages(&um->sgt, pages, page_count,
                                    addr & ~PAGE_MASK, size, max_segment, gcvNULL, 0, GFP_KERNEL | gcdNOWARN));
 # elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+        max_segment = SCATTERLIST_MAX_SEGMENT;
         result = __sg_alloc_table_from_pages(&um->sgt, pages, page_count, addr & ~PAGE_MASK,
                                              size, max_segment, GFP_KERNEL | gcdNOWARN);
 # else
@@ -302,12 +316,14 @@ import_page_map(gckOS Os, struct device *dev, struct um_desc *um,
 #endif
         if (unlikely(result < 0)) {
             pr_warn("[galcore]: %s: sg_alloc_table_from_pages_segment failed\n", __func__);
+            ret = -ENOMEM;
             goto error;
         }
 
-        result = dma_map_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_TO_DEVICE);
-        if (unlikely(result != um->sgt.nents)) {
+        result = dma_map_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_BIDIRECTIONAL);
+        if (unlikely(result == 0)) {
             pr_warn("[galcore]: %s: dma_map_sg failed\n", __func__);
+            ret = -ENOMEM;
             goto error;
         }
 
@@ -331,7 +347,7 @@ error:
 
     free_memory(pages);
 
-    return result;
+    return ret;
 }
 
 static int
@@ -344,14 +360,16 @@ import_pfn_map(gckOS Os, struct device *dev, struct um_desc *um,
     int *refs;
     struct page **pages = gcvNULL;
     int result = 0;
+    int rets = -ENOTTY;
     size_t pageCount = 0;
+    unsigned int data = 0;
 
     if (!current->mm)
         return -ENOTTY;
 
     down_read(&current_mm_mmap_sem);
     vma = find_vma(current->mm, addr);
-#if !gcdUSING_PFN_FOLLOW && LINUX_VERSION_CODE < KERNEL_VERSION (6, 5, 0)
+#if !gcdUSING_PFN_FOLLOW && (LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0))
     up_read(&current_mm_mmap_sem);
 #endif
 
@@ -378,12 +396,19 @@ import_pfn_map(gckOS Os, struct device *dev, struct um_desc *um,
     }
 
     for (i = 0; i < pfn_count; i++) {
-#if gcdUSING_PFN_FOLLOW || LINUX_VERSION_CODE >= KERNEL_VERSION (6, 5, 0)
+#if gcdUSING_PFN_FOLLOW || (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0))
         int ret = 0;
         ret = follow_pfn(vma, addr, &pfns[i]);
         if (ret < 0) {
-            up_read(&current_mm_mmap_sem);
-            goto err;
+            /* Case maybe provides unmapped addr. */
+            ret = gckOS_ReadMappedPointer(Os, (gctPOINTER)addr, &data);
+            if (!ret)
+                ret = follow_pfn(vma, addr, &pfns[i]);
+
+            if (ret < 0) {
+                up_read(&current_mm_mmap_sem);
+                goto err;
+            }
         }
 #else
         /* protect pfns[i] */
@@ -423,8 +448,14 @@ import_pfn_map(gckOS Os, struct device *dev, struct um_desc *um,
         pte = pte_offset_map_lock(current->mm, pmd, addr, &ptl);
 
         if (!pte_present(*pte)) {
-            pte_unmap_unlock(pte, ptl);
-            goto err;
+            /* Case maybe provides unmapped addr. */
+            if (gcmIS_SUCCESS(gckOS_ReadMappedPointer(Os, (gctPOINTER)addr, &data)))
+                pte = pte_offset_map_lock(current->mm, pmd, addr, &ptl);
+
+            if (!pte_present(*pte)) {
+                pte_unmap_unlock(pte, ptl);
+                goto err;
+            }
         }
 
         pfns[i] = pte_pfn(*pte);
@@ -433,9 +464,22 @@ import_pfn_map(gckOS Os, struct device *dev, struct um_desc *um,
         /* Advance to next. */
         addr += PAGE_SIZE;
     }
-#if gcdUSING_PFN_FOLLOW || LINUX_VERSION_CODE >= KERNEL_VERSION (6, 5, 0)
+#if gcdUSING_PFN_FOLLOW || (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0))
     up_read(&current_mm_mmap_sem);
 #endif
+
+    /* Check whether Physical is greater than 4G */
+    if (Os->device->platform->flagBits & gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS) {
+        gctPHYS_ADDR_T address;
+
+        for (i = 0; i < pageCount; i++) {
+            address = pfns[i] << PAGE_SHIFT;
+            if (address > 0xFFFFFFFFu) {
+                rets = -EINVAL;
+                goto err;
+            }
+        }
+    }
 
     for (i = 0; i < pfn_count; i++) {
         if (pfn_valid(pfns[i])) {
@@ -458,19 +502,20 @@ import_pfn_map(gckOS Os, struct device *dev, struct um_desc *um,
 
     if (pageCount == pfn_count && !um->alloc_from_res) {
 #if gcdUSE_LINUX_SG_TABLE_API
-# if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
         size_t max_segment = SIZE_MAX;
 
         max_segment = dma_max_mapping_size(dev);
 # endif
 
-# if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
         result = sg_alloc_table_from_pages_segment(&um->sgt, pages, pfn_count, addr & ~PAGE_MASK,
                                                    pfn_count * PAGE_SIZE, max_segment, GFP_KERNEL | gcdNOWARN);
 # elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
         result = PTR_ERR_OR_ZERO(__sg_alloc_table_from_pages(&um->sgt, pages, pfn_count, addr & ~PAGE_MASK,
                                        pfn_count * PAGE_SIZE, max_segment, gcvNULL, 0, GFP_KERNEL | gcdNOWARN));
 # elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+        max_segment = SCATTERLIST_MAX_SEGMENT;
         result = __sg_alloc_table_from_pages(&um->sgt, pages, pfn_count, addr & ~PAGE_MASK,
                                              pfn_count * PAGE_SIZE, max_segment, GFP_KERNEL | gcdNOWARN);
 # else
@@ -485,18 +530,20 @@ import_pfn_map(gckOS Os, struct device *dev, struct um_desc *um,
 #endif
         if (unlikely(result < 0)) {
             pr_warn("[galcore]: %s: sg_alloc_table_from_pages_segment failed\n", __func__);
+            rets = -ENOMEM;
             goto err;
         }
 
-        result = dma_map_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_TO_DEVICE);
+        result = dma_map_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_BIDIRECTIONAL);
 
-        if (unlikely(result != um->sgt.nents)) {
+        if (unlikely(result == 0)) {
 #if gcdUSE_LINUX_SG_TABLE_API
             sg_free_table(&um->sgt);
 #else
             kfree(um->sgt.sgl);
 #endif
             pr_warn("[galcore]: %s: dma_map_sg failed\n", __func__);
+            rets = -ENOMEM;
             goto err;
         }
         if (Os->iommu)
@@ -516,7 +563,7 @@ err:
     free_memory(refs);
     free_memory(pages);
 
-    return -ENOTTY;
+    return rets;
 }
 
 static void
@@ -549,7 +596,7 @@ release_page_map(gckOS Os, struct device *dev, struct um_desc *um)
 
         dma_sync_sg_for_cpu(dev, um->sgt.sgl, um->sgt.nents, DMA_FROM_DEVICE);
 
-        dma_unmap_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_FROM_DEVICE);
+        dma_unmap_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_BIDIRECTIONAL);
 
         um->dmaHandle = 0;
 
@@ -580,7 +627,7 @@ release_pfn_map(gckOS Os, struct device *dev, struct um_desc *um)
     int i;
 
     if (um->sgt.nents > 0) {
-        dma_unmap_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_FROM_DEVICE);
+        dma_unmap_sg(dev, um->sgt.sgl, um->sgt.nents, DMA_BIDIRECTIONAL);
 
 #if gcdUSE_LINUX_SG_TABLE_API
         sg_free_table(&um->sgt);
@@ -620,7 +667,7 @@ _Import(gckOS Os, PLINUX_MDL Mdl, gctPOINTER Memory,
     gctBOOL mapped = gcvFALSE;
 
     gctSIZE_T extraPage;
-    gctSIZE_T pageCount, i;
+    gctSIZE_T pageCount;
 
     gcmkHEADER_ARG("Os=%p Memory=%p Physical=0x%llx Size=%lu",
                    Os, Memory, Physical, Size);
@@ -698,6 +745,12 @@ _Import(gckOS Os, PLINUX_MDL Mdl, gctPOINTER Memory,
     }
 
     if (Physical != gcvINVALID_PHYSICAL_ADDRESS) {
+        /* Checking whether Physical is greater than 4G. */
+        if ((Os->device->platform->flagBits & gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS)
+              && pfn_valid(PHYS_PFN(Physical))) {
+            if (Physical > 0xFFFFFFFFu || Physical + Size > 0xFFFFFFFFu)
+                gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+        }
         result = import_physical_map(Os, dev, UserMemory, Physical);
     } else {
         if (vm_flags & VM_PFNMAP)
@@ -714,35 +767,6 @@ _Import(gckOS Os, PLINUX_MDL Mdl, gctPOINTER Memory,
         gcmkONERROR(gcvSTATUS_OUT_OF_RESOURCES);
 
     mapped = gcvTRUE;
-
-    if (Os->device->platform->flagBits & gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS) {
-        gctPHYS_ADDR_T addr;
-
-        if (Physical != gcvINVALID_PHYSICAL_ADDRESS) {
-            if (Physical > 0xFFFFFFFFu || Physical + Size > 0xFFFFFFFFu)
-                gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-        } else if (vm_flags & VM_PFNMAP) {
-            for (i = 0; i < pageCount; i++) {
-                addr = UserMemory->pfns[i] << PAGE_SHIFT;
-                if (addr > 0xFFFFFFFFu) {
-                    free_memory(UserMemory->pfns);
-                    UserMemory->pfns = gcvNULL;
-                    free_memory(UserMemory->refs);
-                    UserMemory->refs = gcvNULL;
-                    gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-                }
-            }
-        } else {
-            for (i = 0; i < pageCount; i++) {
-                addr = page_to_phys(UserMemory->pages[i]);
-                if (addr > 0xFFFFFFFFu) {
-                    free_memory(UserMemory->pages);
-                    UserMemory->pages = gcvNULL;
-                    gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-                }
-            }
-        }
-    }
 
     UserMemory->vm_flags = vm_flags;
     UserMemory->user_vaddr = (unsigned long)Memory;

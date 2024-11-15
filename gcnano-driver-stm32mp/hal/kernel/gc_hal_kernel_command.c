@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_precomp.h"
 #include "gc_hal_kernel_context.h"
@@ -299,6 +298,46 @@ OnError:
 
     /* Return the status. */
     gcmkFOOTER();
+    return status;
+}
+
+/* Switch to security first, then switch to non-security mode. */
+gceSTATUS
+gckCOMMAND_SwitchSecurityMode(gckCOMMAND Command, gckHARDWARE Hardware)
+{
+    gceSTATUS status = gcvSTATUS_OK;
+    gctUINT32 reserveBytes;
+    gctUINT32 size;
+    gctUINT8_PTR pointer;
+    gctADDRESS address;
+    gctBOOL powerManagement = gcvFALSE;
+
+    gcmkONERROR(gckHARDWARE_QueryPowerManagement(Hardware, &powerManagement));
+
+    if (powerManagement)
+        gcmkONERROR(gckHARDWARE_EnablePowerManagement(Hardware, gcvFALSE));
+
+    gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, gcvPOWER_ON_AUTO));
+
+    gcmkONERROR(gckHARDWARE_SwitchSecurityMode(Hardware, gcvNULL, gcvINVALID_ADDRESS, 1, 0, &reserveBytes));
+
+    gcmkONERROR(gckCOMMAND_Reserve(Command, reserveBytes, (gctPOINTER *)&pointer, &size));
+
+    address = Command->address + Command->offset;
+
+    /* Switch to security mode then to non-secuirty mode. */
+    gcmkONERROR(gckHARDWARE_SwitchSecurityMode(Hardware, pointer, address, 1, 0, &reserveBytes));
+
+    if (Command->feType == gcvHW_FE_WAIT_LINK)
+        gcmkONERROR(gckCOMMAND_Execute(Command, reserveBytes));
+    else
+        gcmkONERROR(gckCOMMAND_ExecuteEnd(Command, reserveBytes));
+
+    /* enable power management */
+    if (powerManagement)
+        gcmkONERROR(gckHARDWARE_EnablePowerManagement(Hardware, gcvTRUE));
+
+OnError:
     return status;
 }
 
@@ -1142,6 +1181,7 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
     gctINT i;
     gctPOINTER pointer = gcvNULL;
     gctSIZE_T pageSize;
+    gctUINT64 cmdQueueSizeByPage = 1;
 
     gcmkHEADER_ARG("Kernel=%p", Kernel);
 
@@ -1188,13 +1228,15 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
     /* Get the page size from the OS. */
     gcmkONERROR(gckOS_GetPageSize(os, &pageSize));
 
-    gcmkSAFECASTSIZET(command->pageSize, pageSize);
-
     /* Get process ID. */
     gcmkONERROR(gckOS_GetProcessID(&command->kernelProcessID));
 
     /* Set hardware to pipe 0. */
     command->pipeSelect = gcvPIPE_INVALID;
+
+    gckOS_QueryOption(os, "cmdQueueSizeByPage", &cmdQueueSizeByPage);
+
+    command->size = (gctUINT32)(pageSize * cmdQueueSizeByPage);
 
     /* Pre-allocate the command queues. */
     for (i = 0; i < gcdCOMMAND_QUEUES; ++i) {
@@ -1204,7 +1246,7 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
         gcePOOL pool = gcvPOOL_VIRTUAL;
 #endif
 
-        gctSIZE_T size = pageSize;
+        gctSIZE_T size = command->size;
         gckVIDMEM_NODE videoMem = gcvNULL;
         gctUINT32 allocFlag = 0;
 
@@ -1212,9 +1254,8 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
         allocFlag = gcvALLOC_FLAG_CACHEABLE;
 #endif
 
-#if gcdENABLE_40BIT_VA
-        allocFlag |= gcvALLOC_FLAG_32BIT_VA;
-#endif
+        if (Kernel->hardware->largeVAVersion)
+            allocFlag |= gcvALLOC_FLAG_32BIT_VA;
 
         /* Allocate video memory node for command buffers. */
         gcmkONERROR(gckKERNEL_AllocateVideoMemory(Kernel, 64, gcvVIDMEM_TYPE_COMMAND,
@@ -1369,11 +1410,13 @@ gckCOMMAND_Destroy(gckCOMMAND Command)
     if (Command->powerSemaphore) {
         /* Destroy the power management semaphore. */
         gcmkVERIFY_OK(gckOS_DestroySemaphore(Command->os, Command->powerSemaphore));
+        Command->powerSemaphore = gcvNULL;
     }
 
     if (Command->atomCommit) {
         /* Destroy the commit atom. */
         gcmkVERIFY_OK(gckOS_AtomDestroy(Command->os, Command->atomCommit));
+        Command->atomCommit = gcvNULL;
     }
 
 #if gcdRECORD_COMMAND
@@ -1390,8 +1433,10 @@ gckCOMMAND_Destroy(gckCOMMAND Command)
         gcmkOS_SAFE_FREE(Command->os, Command->semaHandleMap);
     }
 
-    if (Command->fence)
+    if (Command->fence) {
         gcmkVERIFY_OK(gckFENCE_Destory(Command->os, Command->fence));
+        Command->fence = gcvNULL;
+    }
 
     /* Mark object as unknown. */
     Command->object.type = gcvOBJ_UNKNOWN;
@@ -1556,7 +1601,7 @@ _StartWaitLinkFE(gckCOMMAND Command)
     gcmkONERROR(gckWLFE_WaitLink(hardware, gcvNULL, gcvINVALID_ADDRESS,
                                  Command->offset, &waitLinkBytes, gcvNULL, gcvNULL));
 
-    if ((Command->pageSize - Command->offset < waitLinkBytes) || (Command->logical == gcvNULL)) {
+    if ((Command->size - Command->offset < waitLinkBytes) || (Command->logical == gcvNULL)) {
         /* Start at beginning of a new queue. */
         gcmkONERROR(_NewQueue(Command, gcvTRUE));
     }
@@ -1662,7 +1707,7 @@ OnError:
 static gceSTATUS
 _StartAsyncFE(gckCOMMAND Command)
 {
-    if ((Command->pageSize <= Command->offset) || (Command->logical == gcvNULL)) {
+    if ((Command->size <= Command->offset) || (Command->logical == gcvNULL)) {
         /* Start at beginning of a new queue. */
         gcmkVERIFY_OK(_NewQueue(Command, gcvTRUE));
     }
@@ -1677,7 +1722,7 @@ _StartAsyncFE(gckCOMMAND Command)
 static gceSTATUS
 _StartMCFE(gckCOMMAND Command)
 {
-    if ((Command->pageSize <= Command->offset) || (Command->logical == gcvNULL)) {
+    if ((Command->size <= Command->offset) || (Command->logical == gcvNULL)) {
         /* Start at beginning of a new queue. */
         gcmkVERIFY_OK(_NewQueue(Command, gcvTRUE));
     }
@@ -2029,7 +2074,7 @@ _CommitWaitLinkOnce(gckCOMMAND Command,
     offset = Command->offset;
 
     /* Compute number of bytes left in current kernel command queue. */
-    bytes = Command->pageSize - offset;
+    bytes = Command->size - offset;
 
     /* Query the size of WAIT/LINK command sequence. */
     gcmkONERROR(gckWLFE_WaitLink(hardware, gcvNULL, gcvINVALID_ADDRESS, offset,
@@ -2044,7 +2089,7 @@ _CommitWaitLinkOnce(gckCOMMAND Command,
         offset = Command->offset;
 
         /* Recompute the number of bytes in the new kernel command queue. */
-        bytes = Command->pageSize - offset;
+        bytes = Command->size - offset;
         gcmkASSERT(bytes >= waitLinkBytes);
     }
 
@@ -2275,8 +2320,8 @@ _CommitWaitLinkOnce(gckCOMMAND Command,
         gctUINT8_PTR link = commandBufferTail + CommandBuffer->exitIndex * 16;
         gctSIZE_T wlbytes = 8;
 #if !gcdSHARED_COMMAND_BUFFER
-        gceCORE_3D_MASK mask = gckHARDWARE_IsFeatureAvailable(hardware, gcvFEATURE_MULTI_CLUSTER) ?
-            gcvCORE_3D_ALL_MASK : ((gceCORE_3D_MASK)(1 << hardware->kernel->chipID));
+        gceCORE_3D_MASK mask = gckHARDWARE_IsFeatureAvailable(hardware, gcvFEATURE_CHIPENABLE_LINK)
+                             ? (gceCORE_3D_MASK)(1 << hardware->kernel->chipID) : gcvCORE_3D_ALL_MASK;
 # else
         gceCORE_3D_MASK mask = gcvCORE_3D_ALL_MASK;
 # endif
@@ -2362,7 +2407,7 @@ _CommitWaitLinkOnce(gckCOMMAND Command,
             gckQUEUE_Enqueue(&hardware->linkQueue, &data);
         }
 
-        if (Command->kernel->stuckDump >= gcvSTUCK_DUMP_ALL_COMMAND) {
+        if (Command->kernel->stuckDump >= gcvSTUCK_DUMP_KERNEL_COMMAND) {
             data.linkData.start = exitAddress;
             data.linkData.end = exitAddress + exitBytes;
             data.linkData.linkLow = exitLinkLow;
@@ -2398,49 +2443,51 @@ _CommitWaitLinkOnce(gckCOMMAND Command,
                     commandBufferSize - offset);
 
 #if gcdDUMP_HW_SUBCOMMAND && gcdDUMP_IN_KERNEL
-    /* reset list count */
-    subCommandList.count = 0;
-    subCommandList.next = gcvNULL;
+    if (Command->kernel->stuckDump >= gcvSTUCK_DUMP_SUBCOMMAND) {
+        /* reset list count */
+        subCommandList.count = 0;
+        subCommandList.next = gcvNULL;
 
-    _CreateSubCmdList(Command->os,
-                      commandBufferLogical + offset,
-                      commandBufferSize - offset,
-                      subCommand, checkCount, &subCommandList);
-    node = subCommandList.next;
+        _CreateSubCmdList(Command->os,
+                          commandBufferLogical + offset,
+                          commandBufferSize - offset,
+                          subCommand, checkCount, &subCommandList);
+        node = subCommandList.next;
 
-    while (node) {
-        gctSIZE_T node_offset;
+        while (node) {
+            gctSIZE_T node_offset;
 
-        status = gckVIDMEM_NODE_Find(Command->kernel, node->address, &nodeObject, &node_offset);
+            status = gckVIDMEM_NODE_Find(Command->kernel, node->address, &nodeObject, &node_offset);
 
-        if (gcmIS_SUCCESS(status)) {
-            gcmkONERROR(gckVIDMEM_NODE_LockCPU(Command->kernel, nodeObject,
-                                               gcvFALSE, gcvFALSE, &entryDump));
+            if (gcmIS_SUCCESS(status)) {
+                gcmkONERROR(gckVIDMEM_NODE_LockCPU(Command->kernel, nodeObject,
+                                                   gcvFALSE, gcvFALSE, &entryDump));
 
-            /* Kernel address of page where stall point stay. */
-            entryDump = (gctUINT8_PTR)entryDump + node_offset;
+                /* Kernel address of page where stall point stay. */
+                entryDump = (gctUINT8_PTR)entryDump + node_offset;
 
-            gcmkVERIFY_OK(gckVIDMEM_NODE_GetSize(Command->kernel, nodeObject, &bytes));
+                gcmkVERIFY_OK(gckVIDMEM_NODE_GetSize(Command->kernel, nodeObject, &bytes));
 
-            bytes -= node_offset;
+                bytes -= node_offset;
 
-            gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(Command->kernel, nodeObject,
-                                                         0, entryDump, bytes));
+                gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(Command->kernel, nodeObject,
+                                                             0, entryDump, bytes));
 
-            gcmkDUMP(Command->os, "#[%s: 0x%08X sub command]",
-                     subCommand[node->type].name, node->address);
+                gcmkDUMP(Command->os, "#[%s: 0x%08X sub command]",
+                         subCommand[node->type].name, node->address);
 
-            gcmkDUMP_BUFFER(Command->os, gcvDUMP_BUFFER_KERNEL_COMMAND,
-                            entryDump, node->address, bytes);
+                gcmkDUMP_BUFFER(Command->os, gcvDUMP_BUFFER_KERNEL_COMMAND,
+                                entryDump, node->address, bytes);
 
-            gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(Command->kernel, nodeObject,
-                                                   0, gcvFALSE, gcvFALSE));
-        }
+                gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(Command->kernel, nodeObject,
+                                                       0, gcvFALSE, gcvFALSE));
+            }
 
-        node = node->next;
-    };
+            node = node->next;
+        };
 
-    _DestroySubCmdList(Command->os, &subCommandList);
+        _DestroySubCmdList(Command->os, &subCommandList);
+    }
 #endif
 
     /* execute user commands. */
@@ -2855,7 +2902,8 @@ OnError:
     return status;
 }
 
-gceSTATUS
+#if gcdVALID_COMMAND_BUFFER
+static gceSTATUS
 _ValidCommandBuffer(gckCOMMAND Command, gctUINT32 ProcessId,
                     gcsHAL_COMMAND_LOCATION *cmdLoc)
 {
@@ -2876,6 +2924,7 @@ OnError:
     gcmkFOOTER();
     return status;
 }
+#endif
 
 /*******************************************************************************
  **
@@ -2913,7 +2962,7 @@ gckCOMMAND_Commit(gckCOMMAND Command, gcsHAL_SUBCOMMIT *SubCommit,
     gctBOOL needCopy = gcvFALSE;
     gcsPATCH_LIST_VARIABLE patchListVar = { 0, 0 };
     gctBOOL commitEntered = gcvFALSE;
-
+    gctBOOL switchSecurityMode = gcvFALSE;
     gckMMU mmu = gcvNULL;
 
     gcmkHEADER_ARG("Command=%p SubCommit=%p delta=%p context=%llu pid=%u",
@@ -2957,6 +3006,17 @@ gckCOMMAND_Commit(gckCOMMAND Command, gcsHAL_SUBCOMMIT *SubCommit,
         if (Command->kernel->processPageTable && Command->currContext != context)
             gcmkONERROR(gckKERNEL_SwitchMMU(Command->kernel, Shared, mmu));
 
+
+#if gcdCONTEXT_SWITCH_FORCE_USC_RESET
+        if (!Command->kernel->processPageTable && Command->currContext != context
+            && Command->kernel->hardware->type == gcvHARDWARE_3D
+            && gckHARDWARE_IsFeatureAvailable(Command->kernel->hardware, gcvFEATURE_SECURITY))
+            switchSecurityMode = gcvTRUE;
+#endif
+
+        if (switchSecurityMode)
+            gcmkONERROR(gckCOMMAND_SwitchSecurityMode(Command, Command->kernel->hardware));
+
         /* Acquire the command queue. */
         gcmkONERROR(gckCOMMAND_EnterCommit(Command, gcvFALSE));
         commitEntered = gcvTRUE;
@@ -2988,10 +3048,6 @@ gckCOMMAND_Commit(gckCOMMAND Command, gcsHAL_SUBCOMMIT *SubCommit,
         /* Release the command queue. */
         gcmkONERROR(gckCOMMAND_ExitCommit(Command, gcvFALSE));
         commitEntered = gcvFALSE;
-
-        /* Do not need context or delta for later commands. */
-        context = gcvNULL;
-        delta = gcvNULL;
 
         next = cmdLoc->next;
 
@@ -3116,15 +3172,15 @@ gckCOMMAND_Reserve(gckCOMMAND Command, gctUINT32 RequestedBytes,
     }
 
     /* Compute number of bytes available in command queue. */
-    bytes = Command->pageSize - Command->offset;
+    bytes = Command->size - Command->offset;
 
     /* Is there enough space in the current command queue? */
-    if (bytes <= requiredBytes) {
+    if (bytes <= requiredBytes || (Command->offset + requiredBytes >= Command->size)) {
         /* Create a new command queue. */
         gcmkONERROR(_NewQueue(Command, gcvFALSE));
 
         /* Recompute the number of bytes in the new kernel command queue. */
-        bytes = Command->pageSize - Command->offset;
+        bytes = Command->size - Command->offset;
 
         /* Still not enough space? */
         if (bytes < requiredBytes) {
@@ -3197,10 +3253,11 @@ gckCOMMAND_Execute(gckCOMMAND Command, gctUINT32 RequestedBytes)
     waitLinkOffset = Command->offset + RequestedBytes;
 
     /* Compute number of bytes left in command queue. */
-    waitLinkBytes = Command->pageSize - waitLinkOffset;
+    waitLinkBytes = Command->size - waitLinkOffset;
 
     /* Compute the location if WAIT/LINK command sequence. */
     waitLinkLogical = (gctUINT8_PTR)Command->logical + waitLinkOffset;
+
     waitLinkAddress = Command->address + waitLinkOffset;
 
     /* Append WAIT/LINK in command queue. */
@@ -3258,7 +3315,7 @@ gckCOMMAND_Execute(gckCOMMAND Command, gctUINT32 RequestedBytes)
                                           Command->waitPos.size));
 
 #if gcdLINK_QUEUE_SIZE
-    if (Command->kernel->stuckDump >= gcvSTUCK_DUMP_ALL_COMMAND) {
+    if (Command->kernel->stuckDump >= gcvSTUCK_DUMP_KERNEL_COMMAND) {
         gcuQUEUEDATA data;
 
         gcmkVERIFY_OK(gckOS_GetProcessID(&data.linkData.pid));
@@ -3619,11 +3676,9 @@ gckCOMMAND_Stall(gckCOMMAND Command, gctBOOL FromPower)
 
             /* Advance timer. */
             timer += gcdGPU_ADVANCETIMER;
-        } else if (status == gcvSTATUS_INTERRUPTED) {
-            gcmkONERROR(gcvSTATUS_INTERRUPTED);
         }
-
-    } while (gcmIS_ERROR(status));
+    } while (((status == gcvSTATUS_TIMEOUT) || (status == gcvSTATUS_INTERRUPTED)) &&
+             (timer < hardware->kernel->timeOut));
 
     /* Bail out on timeout. */
     if (gcmIS_ERROR(status)) {
@@ -3953,6 +4008,8 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
 
             gcmkVERIFY_OK(gckVIDMEM_NODE_GetSize(kernel, nodeObject, &bytes));
 
+            gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(kernel, nodeObject, 0, entryDump, bytes));
+
             gcmkPRINT("Command buffer around 0x%08X:", address);
 
             /* Align to 4096. */
@@ -3982,8 +4039,14 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
         entry = Command->queues[i].logical;
         gpuAddress = Command->queues[i].address;
 
-        gcmkPRINT("command buffer %d at 0x%llx size %u", i, gpuAddress, Command->pageSize);
-        _DumpBuffer(entry, gpuAddress, Command->pageSize);
+        gcmkPRINT("command buffer %d at 0x%llx size %u", i, gpuAddress, Command->size);
+
+        gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(kernel,
+                                                     Command->queues[i].videoMem,
+                                                     0, entry,
+                                                     Command->size));
+
+        _DumpBuffer(entry, gpuAddress, Command->size);
     }
 
     /* new line. */
@@ -4023,8 +4086,11 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
             entryDump = (gctUINT8_PTR)entryDump + offset;
 
 #if gcdDUMP_HW_SUBCOMMAND
-            _CreateSubCmdList(kernel->os, entryDump, bytes, subCommand, checkCount, &subCommandList);
+            if (kernel->stuckDump >= gcvSTUCK_DUMP_SUBCOMMAND)
+                _CreateSubCmdList(kernel->os, entryDump, bytes, subCommand, checkCount, &subCommandList);
 #endif
+
+            gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(kernel, nodeObject, offset, entryDump, bytes));
             _DumpBuffer(entryDump, gpuAddress, bytes);
 
             gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(kernel, nodeObject, 0, gcvFALSE, gcvFALSE));
@@ -4037,49 +4103,53 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
     }
 
 #if gcdDUMP_HW_SUBCOMMAND
-    gcmkPRINT("Sub command:");
-    node = subCommandList.next;
+    if (kernel->stuckDump >= gcvSTUCK_DUMP_SUBCOMMAND) {
+        gcmkPRINT("Sub command:");
+        node = subCommandList.next;
 
-    while (node) {
-        status = gckVIDMEM_NODE_Find(kernel, node->address, &nodeObject, &offset);
+        while (node) {
+            status = gckVIDMEM_NODE_Find(kernel, node->address, &nodeObject, &offset);
 
-        if (gcmIS_SUCCESS(status)) {
-            gcmkONERROR(gckVIDMEM_NODE_LockCPU(kernel, nodeObject, gcvFALSE, gcvFALSE, &entryDump));
+            if (gcmIS_SUCCESS(status)) {
+                gcmkONERROR(gckVIDMEM_NODE_LockCPU(kernel, nodeObject, gcvFALSE, gcvFALSE, &entryDump));
 
-            /* Kernel address of page where stall point stay. */
-            entryDump = (gctUINT8_PTR)entryDump + offset;
+                /* Kernel address of page where stall point stay. */
+                entryDump = (gctUINT8_PTR)entryDump + offset;
 
-            gcmkVERIFY_OK(gckVIDMEM_NODE_GetSize(kernel, nodeObject, &bytes));
+                gcmkVERIFY_OK(gckVIDMEM_NODE_GetSize(kernel, nodeObject, &bytes));
 
-            bytes -= offset;
+                bytes -= offset;
 
-            gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(kernel, nodeObject, 0, entryDump, bytes));
+                gcmkVERIFY_OK(gckVIDMEM_NODE_InvalidateCache(kernel, nodeObject, offset, entryDump, bytes));
 
-            gcmkPRINT("%s: %llx sub command:", subCommand[node->type].name, node->address);
+                gcmkPRINT("%s: %llx sub command:", subCommand[node->type].name, node->address);
 
-            _DumpBuffer(entryDump, node->address, bytes);
+                _DumpBuffer(entryDump, node->address, bytes);
 
-            gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(kernel, nodeObject, 0, gcvFALSE, gcvFALSE));
-        } else {
-            gcmkPRINT("%llx sub command not found", node->address);
-        }
+                gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(kernel, nodeObject, 0, gcvFALSE, gcvFALSE));
+            } else {
+                gcmkPRINT("%llx sub command not found", node->address);
+            }
 
-        /* new line */
-        gcmkPRINT(" ");
+            /* new line */
+            gcmkPRINT(" ");
 
-        node = node->next;
-    };
+            node = node->next;
+        };
 
-    _DestroySubCmdList(kernel->os, &subCommandList);
+        _DestroySubCmdList(kernel->os, &subCommandList);
+    }
 #endif
+
 
     return gcvSTATUS_OK;
 
 OnError:
 #if gcdDUMP_HW_SUBCOMMAND
-    if (subCommandList.count > 0)
+    if (kernel->stuckDump >= gcvSTUCK_DUMP_SUBCOMMAND && subCommandList.count > 0)
         _DestroySubCmdList(kernel->os, &subCommandList);
 #endif
+
     return status;
 }
 
@@ -4217,9 +4287,6 @@ gckCOMMAND_PreemptCommit(gckCOMMAND Command, gckPREEMPT_COMMIT PreemptCommit)
 
         if (status != gcvSTATUS_INTERRUPTED)
             gcmkONERROR(status);
-
-        context = gcvNULL;
-        delta = gcvNULL;
 
         cmdLoc = (gcsHAL_COMMAND_LOCATION *)gcmUINT64_TO_PTR(cmdLoc->next);
     } while (cmdLoc);

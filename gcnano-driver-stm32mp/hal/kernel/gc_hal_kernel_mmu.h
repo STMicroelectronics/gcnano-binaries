@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -52,7 +52,6 @@
 *
 *****************************************************************************/
 
-
 #ifndef _gc_hal_kenrel_mmu_h_
 #define _gc_hal_kenrel_mmu_h_
 
@@ -60,12 +59,22 @@
 # include "gcDefines.h"
 #if defined(gcdVIRTUAL_ADDRESS_WIDTH) && (gcdVIRTUAL_ADDRESS_WIDTH == 40)
 #  define gcdENABLE_40BIT_VA        1
+#if defined(gcdMMU_EXTRA_TO_L1) && (gcdMMU_EXTRA_TO_L1 == 1)
+#   define gcdMMU_40VA_40PA         0
+#  else
+#   define gcdMMU_40VA_40PA         1
+#  endif
 # endif
 #endif
 
 #ifndef gcdENABLE_40BIT_VA
 # define gcdENABLE_40BIT_VA         0
 #endif
+
+#ifndef gcdMMU_40VA_40PA
+# define gcdMMU_40VA_40PA           0
+#endif
+
 #define gcd4G_VA_FM_SIZE            0x40000000
 
 #ifndef gcdDEBUG_MMU_SWITCH
@@ -74,6 +83,10 @@
 
 #ifndef gcdMMU_DESC_SIZE
 #define gcdMMU_DESC_SIZE            (1 << 16)
+#endif
+
+#ifndef gcdCONTEXT_SWITCH_FORCE_USC_RESET
+#define gcdCONTEXT_SWITCH_FORCE_USC_RESET 0
 #endif
 
 /*******************************************************************************
@@ -91,9 +104,15 @@
 #endif
 
 #if gcdENABLE_40BIT_VA
-# undef gcdMMU_MTLB_SHIFT
 # undef gcdMMU_VA_BITS
-# define gcdMMU_MTLB_SHIFT       30
+# undef gcdMMU_MTLB_SHIFT
+
+#if gcdMMU_40VA_40PA
+#  define gcdMMU_MTLB_SHIFT      30
+# else
+#  define gcdMMU_MTLB_SHIFT      24
+# endif
+
 # define gcdMMU_VA_BITS          40
 
 #ifndef gcdDDR_SIZE_MAX
@@ -115,19 +134,28 @@
 #define gcdMMU_STLB_1M_BITS         (gcdMMU_VA_BITS - gcdMMU_MTLB_BITS - gcdMMU_PAGE_1M_BITS)
 #define gcdMMU_PAGE_16M_BITS        gcdMMU_STLB_16M_SHIFT
 
-#if gcdENABLE_40BIT_VA
+#if gcdENABLE_40BIT_VA && gcdMMU_40VA_40PA
 # define gcdMMU_STLB_16M_BITS    (gcdMMU_VA_BITS - gcdMMU_MTLB_BITS - gcdMMU_PAGE_16M_BITS)
 #else
 # define gcdMMU_STLB_16M_BITS    4
 #endif
 
+#ifndef gcdMMU_MTLB_ENTRY_NUM
+
 #if defined(EMULATOR) && gcdENABLE_40BIT_VA
+#if !gcdMMU_40VA_40PA
+# define gcdMMU_MTLB_ENTRY_NUM   (2*1024)
+# else
 # define gcdMMU_MTLB_ENTRY_NUM   40
+# endif
 #elif gcdENABLE_40BIT_VA
-# define gcdMMU_MTLB_ENTRY_NUM   ((gcdDDR_SIZE_MAX * 2) >> 30)
+# define gcdMMU_MTLB_ENTRY_NUM   ((gcdDDR_SIZE_MAX * 2) >> gcdMMU_MTLB_SHIFT)
 #else
 # define gcdMMU_MTLB_ENTRY_NUM   (1 << gcdMMU_MTLB_BITS)
 #endif
+
+#endif
+
 #define gcdMMU_MTLB_SIZE            (gcdMMU_MTLB_ENTRY_NUM << 2)
 #define gcdMMU_STLB_4K_ENTRY_NUM    (1 << gcdMMU_STLB_4K_BITS)
 #define gcdMMU_STLB_4K_SIZE         (gcdMMU_STLB_4K_ENTRY_NUM << 2)
@@ -180,16 +208,7 @@
 #define gcdMMU_MTLB_ENTRY_HINTS_BITS 6
 #define gcdMMU_MTLB_ENTRY_STLB_MASK  (~((1U << gcdMMU_MTLB_ENTRY_HINTS_BITS) - 1))
 
-#define gcdMMU_MTLB_PRESENT         0x00000001
-#define gcdMMU_MTLB_EXCEPTION       0x00000002
-#define gcdMMU_MTLB_4K_PAGE         (0 << 2)
-#define gcdMMU_MTLB_64K_PAGE        (1 << 2)
-#define gcdMMU_MTLB_1M_PAGE         (2 << 2)
-#define gcdMMU_MTBL_16M_PAGE        (3 << 2)
-
-#define gcdMMU_STLB_PRESENT         0x00000001
 #define gcdMMU_STLB_EXCEPTION       0x00000002
-#define gcdMMU_STBL_WRITEABLE       0x00000004
 
 #define gcd1M_PAGE_SIZE             (1 << 20)
 #define gcd1M_PAGE_SHIFT            20
@@ -373,6 +392,9 @@ gckMMU_GetPageEntry(gckMMU Mmu, gcePAGE_TYPE PageType, gctBOOL LowVA,
                     gctADDRESS Address, gctUINT32_PTR *PageTable);
 
 gceSTATUS
+gckMMU_Update(gckMMU Mmu, gctUINT64 Address, gctUINT64 Physical);
+
+gceSTATUS
 gckMMU_SetupSRAM(gckMMU Mmu, gckHARDWARE Hardware, gckDEVICE Device);
 
 gceSTATUS
@@ -404,5 +426,11 @@ gckMMU_DestroyMmuCopy(gckMMU Mmu);
 
 gceSTATUS
 gckMMU_ConstructMmuCopy(gckKERNEL Kernel, gckMMU *MmuCopy);
+
+void
+gckMMU_CheckSaftPage(gckMMU Mmu);
+
+gceSTATUS
+gckMMU_DumpAddressSpace(gckMMU Mmu);
 
 #endif /* _gc_hal_kernel_mmu_h */

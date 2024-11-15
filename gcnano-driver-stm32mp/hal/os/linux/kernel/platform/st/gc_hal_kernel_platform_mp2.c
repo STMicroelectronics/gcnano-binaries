@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -52,15 +52,16 @@
 *
 *****************************************************************************/
 
-
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+#include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
+#include <linux/thermal.h>
 
 #include "gc_hal_kernel_linux.h"
 #include "gc_hal_kernel_platform.h"
@@ -76,8 +77,19 @@
 #define str(x) #x
 #endif
 
+#if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
+struct gpufreq_cooling_device {
+        int id;
+        struct thermal_cooling_device *cdev;
+        unsigned int state;
+        unsigned int max_state;
+};
+
+static DEFINE_IDR(gpufreq_idr);
+static DEFINE_MUTEX(gpufreq_cooling_lock);
+#endif
 struct st_priv {
-    gcsPLATFORM * platform;
+    gcsPLATFORM *platform;
 
     /*  Reset management */
     struct reset_control *rstc;
@@ -89,6 +101,13 @@ struct st_priv {
     struct clk  *clk_3d_ahb;
     struct clk  *clk_3d_axi;
     struct clk  *clk_3d_ref;
+
+    /* Multi Power domains management */
+    struct dev_pm_domain_list *gpu_pd_list;
+
+#if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
+    struct gpufreq_cooling_device *gpu_cooling_dev;
+#endif
 };
 
 static struct st_priv *stpriv;
@@ -124,8 +143,8 @@ _FreePriv(IN gcsPLATFORM * Platform)
 
 static int _reset(void)
 {
-    struct st_priv* priv = stpriv;
-    struct platform_device* pdev = stpriv->platform->device;
+    struct st_priv *priv = stpriv;
+    struct platform_device *pdev = stpriv->platform->device;
     struct device *dev = &pdev->dev;
 
     struct reset_control *rstc = priv->rstc;
@@ -191,9 +210,8 @@ set_power(struct device *dev, IN gctBOOL Enable)
     struct st_priv *priv = stpriv;
     int ret = gcvSTATUS_OK;
 
-    if (!priv->supply) {
+    if (!priv->supply)
         goto error;
-    }
 
     if (Enable) {
         ret = regulator_enable(priv->supply);
@@ -214,6 +232,185 @@ error:
     return ret;
 }
 
+#if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
+static int gpufreq_set_cur_state(struct thermal_cooling_device *cdev,
+                                 unsigned long state)
+{
+    struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+    struct device dev = cdev->device;
+    gctUINT curFscale;
+    gckHARDWARE hardware;
+    gckGALDEVICE galDevice;
+    gckDEVICE device;
+    gctUINT core = gcvCORE_MAJOR;
+
+    galDevice = platform_get_drvdata(stpriv->platform->device);
+    if (!galDevice) {
+        /* GPU is not ready, so it is meaningless to change GPU freq. */
+        return -EINVAL;
+    }
+
+    device = galDevice->devices[0];
+    if (!device->kernels[core])
+        return -EINVAL;
+
+    hardware = device->kernels[core]->hardware;
+
+    if (!hardware)
+        return -EINVAL;
+
+
+    curFscale = 1 << ( gpufreq_device->max_state - state );
+    dev_warn(&dev, "GPU Clock Scale to %d/64\n", curFscale);
+
+    gckHARDWARE_SetFscaleValue(device->kernels[core]->hardware, curFscale, curFscale);
+
+    gpufreq_device->state = state;
+    return 0;
+}
+
+static int gpufreq_get_max_state(struct thermal_cooling_device *cdev,
+                                 unsigned long *state)
+{
+    struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+
+    *state = gpufreq_device->max_state;
+
+    return 0;
+}
+
+static int gpufreq_get_cur_state(struct thermal_cooling_device *cdev,
+                                 unsigned long *state)
+{
+    struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+    struct device dev = cdev->device;
+
+    *state = gpufreq_device->state;
+    dev_dbg(&dev, "GPU Clock Current State: %ld\n", *state);
+
+    return 0;
+}
+
+static struct thermal_cooling_device_ops const gpufreq_cooling_ops = {
+    .get_max_state = gpufreq_get_max_state,
+    .get_cur_state = gpufreq_get_cur_state,
+    .set_cur_state = gpufreq_set_cur_state,
+};
+
+static int get_idr(struct idr *idr, int *id)
+{
+    int ret;
+
+    mutex_lock(&gpufreq_cooling_lock);
+    ret = idr_alloc(idr, NULL, 0, 0, GFP_KERNEL);
+    mutex_unlock(&gpufreq_cooling_lock);
+    if (unlikely(ret < 0))
+        return ret;
+    *id = ret;
+
+    return 0;
+}
+
+static void release_idr(struct idr *idr, int id)
+{
+    mutex_lock(&gpufreq_cooling_lock);
+    idr_remove(idr, id);
+    mutex_unlock(&gpufreq_cooling_lock);
+}
+
+static struct thermal_cooling_device *device_gpu_cooling_register(struct device *dev,
+                                                                  unsigned long states)
+{
+    struct thermal_cooling_device *cdev;
+    struct gpufreq_cooling_device *gpufreq_dev = NULL;
+    char cool_dev_name[THERMAL_NAME_LENGTH];
+    int ret = 0;
+
+    gpufreq_dev = kzalloc(sizeof(struct gpufreq_cooling_device),
+                                 GFP_KERNEL);
+    if (!gpufreq_dev)
+        return ERR_PTR(-ENOMEM);
+
+    ret = get_idr(&gpufreq_idr, &gpufreq_dev->id);
+    if (ret) {
+        kfree(gpufreq_dev);
+        return ERR_PTR(-EINVAL);
+    }
+
+    snprintf(cool_dev_name, sizeof(cool_dev_name), "thermal-gpufreq-%d", gpufreq_dev->id);
+
+    gpufreq_dev->max_state = states;
+    cdev = thermal_of_cooling_device_register(dev->of_node, cool_dev_name, gpufreq_dev,
+                                         &gpufreq_cooling_ops);
+    if (!cdev) {
+        release_idr(&gpufreq_idr, gpufreq_dev->id);
+        kfree(gpufreq_dev);
+        return ERR_PTR(-EINVAL);
+    }
+    gpufreq_dev->cdev = cdev;
+    gpufreq_dev->state = 0;
+
+    stpriv->gpu_cooling_dev = gpufreq_dev;
+
+    return cdev;
+}
+
+static void device_gpu_cooling_unregister(struct thermal_cooling_device *cdev)
+{
+    struct gpufreq_cooling_device *gpufreq_dev = cdev->devdata;
+
+    thermal_cooling_device_unregister(gpufreq_dev->cdev);
+    release_idr(&gpufreq_idr, gpufreq_dev->id);
+    kfree(gpufreq_dev);
+}
+
+static ssize_t gpuClockScale_show(struct device_driver *dev, char *buf)
+{
+    gctUINT currentf = 0, minf = 0, maxf = 0;
+    gckGALDEVICE galDevice;
+    gckDEVICE device;
+
+    galDevice = platform_get_drvdata(stpriv->platform->device);
+
+    device = galDevice->devices[0];
+    if (device->kernels[gcvCORE_MAJOR]) {
+         gckHARDWARE_GetFscaleValue(device->kernels[gcvCORE_MAJOR]->hardware,
+            &currentf, &minf, &maxf);
+    }
+
+    snprintf(buf, PAGE_SIZE, "%d\n", currentf);
+
+    return strlen(buf);
+}
+
+static ssize_t gpuClockScale_store(struct device_driver *dev, const char *buf, size_t count)
+{
+
+    gctINT fields;
+    gctUINT FscaleValue;
+    gckGALDEVICE galDevice;
+    gckDEVICE device;
+    gctUINT core = gcvCORE_MAJOR;
+
+    galDevice = platform_get_drvdata(stpriv->platform->device);
+    if (!galDevice)
+         return -EINVAL;
+
+    device = galDevice->devices[core];
+
+    fields = sscanf(buf, "%d", &FscaleValue);
+
+    if (fields < 1)
+         return -EINVAL;
+
+    gckHARDWARE_SetFscaleValue(device->kernels[core++]->hardware, FscaleValue, FscaleValue);
+
+    return count;
+}
+
+static DRIVER_ATTR_RW(gpuClockScale);
+
+#endif
 
 gceSTATUS
 _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
@@ -267,7 +464,6 @@ _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
 #endif
 
     }
-
     return gcvSTATUS_OK;
 }
 
@@ -327,21 +523,60 @@ _GetPower(IN gcsPLATFORM * Platform)
 {
     struct device *dev = &Platform->device->dev;
     struct st_priv *priv = stpriv;
-    int ret;
+    int ret, nb_gpu_pd;
     gceSTATUS ret_val = gcvSTATUS_OK;
     struct reset_control *rstc;
+    struct dev_pm_domain_list *pd_list = NULL;
+    struct dev_pm_domain_attach_data pd_data = {
+        .pd_flags = PD_FLAG_DEV_LINK_ON,
+    };
+#if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
+    int val;
+#endif
 
     rstc = devm_reset_control_get(dev, NULL);
     priv->rstc = IS_ERR(rstc) ? NULL : rstc;
 
-    priv->supply = devm_regulator_get(dev, "gpu");
+    priv->supply = devm_regulator_get_optional(dev, "gpu");
     if (IS_ERR(priv->supply)) {
         /* If no regulator this is likely a Power Domain management */
-        dev_warn(dev, "no GPU regulator");
+        dev_dbg(dev, "no GPU regulator");
         priv->supply = NULL;
     } else {
-        dev_warn(dev, "GPU regulator gotten");
+        dev_dbg(dev, "GPU regulator gotten");
     }
+
+    if (dev->pm_domain) {
+        nb_gpu_pd = 1;
+    }
+    else {
+        nb_gpu_pd = dev_pm_domain_attach_list(dev, &pd_data, &pd_list);
+    }
+
+    if (nb_gpu_pd > 0) {
+        dev_dbg(dev, "%i Power domain%s provided", nb_gpu_pd,
+        (nb_gpu_pd > 1 ? "s" : ""));
+        priv->gpu_pd_list = pd_list;
+    } else {
+        dev_dbg(dev, "No Power domain(s) provided");
+        priv->gpu_pd_list = NULL;
+    }
+
+    if (!priv->supply && nb_gpu_pd <= 0) {
+        dev_err(dev, "Neither Power Domain nor GPU supply provides. Please check your DT");
+        ret_val = gcvSTATUS_INVALID_REQUEST;
+        goto error;
+    }
+
+    if (priv->supply && nb_gpu_pd > 0) {
+        dev_err(dev, "Can't have both Power Domain and GPU supply. Please check your DT");
+        ret_val = gcvSTATUS_INVALID_REQUEST;
+        goto error;
+    }
+
+#ifdef CONFIG_PM
+    pm_runtime_enable(dev);
+#endif
 
     if (priv->supply) {
        ret = regulator_enable(priv->supply);
@@ -350,9 +585,13 @@ _GetPower(IN gcsPLATFORM * Platform)
           ret_val = gcvSTATUS_CLOCK_ERROR;
           goto error;
        }
+#ifdef CONFIG_PM
+    } else {
+        pm_runtime_resume_and_get(dev);
+#endif
     }
 
-    priv->clk_3d_axi = devm_clk_get(dev, "axi");
+    priv->clk_3d_axi = devm_clk_get(dev, "bus");
     if (IS_ERR(priv->clk_3d_axi)) {
         if (PTR_ERR(priv->clk_3d_axi) != -EPROBE_DEFER)
            dev_err(dev, "no AXI clock");
@@ -398,11 +637,34 @@ _GetPower(IN gcsPLATFORM * Platform)
         }
     }
 
-#ifdef CONFIG_PM
-    pm_runtime_enable(dev);
+#if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
+    ret = driver_create_file(dev->driver, &driver_attr_gpuClockScale);
+    if (ret)
+        dev_err(dev, "create gpuClockScale attr failed (%d)\n", ret);
+
+    if (of_find_property(dev->of_node, "#cooling-cells", NULL)) {
+        ret = of_property_read_u32(dev->of_node, "throttle,max_state", &val);
+        if (ret) {
+            dev_err(dev, "gpufreq: missing throttle max state\n");
+        } else {
+            struct thermal_cooling_device *cdev;
+
+            cdev = device_gpu_cooling_register(dev, val);
+            if (IS_ERR(cdev)) {
+                dev_err(dev, "failed to register gpufreq cooling device\n");
+                device_gpu_cooling_unregister(cdev);
+            }
+        }
+    }
 #endif
 
 error:
+#ifdef CONFIG_PM
+    if (!priv->supply) {
+        pm_runtime_put_sync_suspend(dev);
+    }
+#endif
+
     return ret_val;
 }
 
@@ -436,6 +698,18 @@ _PutPower(IN gcsPLATFORM * Platform)
         devm_regulator_put(priv->supply);
         priv->supply = NULL;
     }
+
+    if (priv->gpu_pd_list) {
+        dev_pm_domain_detach_list(priv->gpu_pd_list);
+        priv->gpu_pd_list = NULL;
+    }
+
+#if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
+    if (stpriv->gpu_cooling_dev)
+        device_gpu_cooling_unregister(stpriv->gpu_cooling_dev->cdev);
+
+    driver_remove_file(Platform->device->dev.driver, &driver_attr_gpuClockScale);
+#endif
 
     return gcvSTATUS_OK;
 }
@@ -471,9 +745,8 @@ _SetClock(IN gcsPLATFORM * Platform, IN gctUINT32 DevIndex,IN gceCORE GPU, IN gc
     }
     else {
         ret = pm_runtime_idle(dev);
-        if ( (ret == -EAGAIN) || (ret == -EBUSY)) {
+        if ((ret == -EAGAIN) || (ret == -EBUSY))
             ret = 0;
-        }
     }
 #else
     ret = set_clock(dev, Enable);

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #if gcdRESET_USC1
 
@@ -288,10 +287,10 @@ _InitializeUSC_NNCommands(gckHARDWARE Hardware,
  32) ? ~0U : (~(~0U << ((1 ? 15:14) - (0 ? 15:14) + 1))))))) << (0 ? 15:14))) | (((gctUINT32) ((gctUINT32) (0x0) & ((gctUINT32) ((((1 ? 15:14) - (0 ? 15:14) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 15:14) - (0 ? 15:14) + 1))))))) << (0 ? 15:14))) |
                      ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 24:18) - (0 ? 24:18) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 24:18) - (0 ? 24:18) + 1))))))) << (0 ? 24:18))) | (((gctUINT32) ((gctUINT32) (1 ) & ((gctUINT32) ((((1 ? 24:18) - (0 ? 24:18) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 24:18) - (0 ? 24:18) + 1))))))) << (0 ? 24:18))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 24:18) - (0 ? 24:18) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 24:18) - (0 ? 24:18) + 1))))))) << (0 ? 24:18))) |
                      ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 31:25) - (0 ? 31:25) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 31:25) - (0 ? 31:25) + 1))))))) << (0 ? 31:25))) | (((gctUINT32) ((gctUINT32) (1 ) & ((gctUINT32) ((((1 ? 31:25) - (0 ? 31:25) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 31:25) - (0 ? 31:25) + 1))))))) << (0 ? 31:25))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 31:25) - (0 ? 31:25) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 31:25) - (0 ? 31:25) + 1))))))) << (0 ? 31:25))) |
                      ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) ((gctUINT32) ((0 >> 3) & 0x1) & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==

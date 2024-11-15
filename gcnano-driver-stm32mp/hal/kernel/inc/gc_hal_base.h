@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_base_h_
 #define __gc_hal_base_h_
@@ -117,6 +116,7 @@ typedef struct _gcsUSER_FENCE_INFO *gcsUSER_FENCE_INFO_PTR;
 
 /* Immuatable features from database */
 typedef struct _gcsNN_FIXED_FEATURE {
+    gctUINT  hwChipVersion;
     gctUINT  vipCoreCount;
     gctUINT  vipRingCount;
     gctUINT  nnMadPerCore;
@@ -142,7 +142,6 @@ typedef struct _gcsNN_FIXED_FEATURE {
     gctUINT  physicalVipSramWidthInByte;
     gctUINT  equivalentVipsramWidthInByte;
     gctUINT  shaderCoreCount;
-    gctUINT  latencyHidingAtFullAxiBw;
     gctUINT  axiBusWidth;
     gctUINT  nnMaxKXSize;
     gctUINT  nnMaxKYSize;
@@ -167,6 +166,11 @@ typedef struct _gcsNN_FIXED_FEATURE {
     gctUINT  inImageYSizeBits;
     gctUINT  smallAccumBits;
     gctUINT  coefDecompressPerfX;
+    gctUINT  decompVzGroupBits;
+    gctUINT  nnCommandSize;
+
+    /* for HW9.4 */
+    gctUINT  nnLoop1DpNumber;
 } gcsNN_FIXED_FEATURE;
 
 /* Features can be customized from outside */
@@ -199,6 +203,7 @@ typedef struct _gcsNN_CUSTOMIZED_FEATURE {
     gctUINT  vipVectorPrune;
     gctUINT  ddrKernelBurstSize;
     gctFLOAT  axiSRAMLatency;
+    gctUINT  latencyHidingAtFullAxiBw;
 } gcsNN_CUSTOMIZED_FEATURE;
 
 /* Features are unified (hardcoded) for hardwares */
@@ -291,7 +296,7 @@ typedef struct _gcsSystemInfo {
     gcvFALSE, /* exiting            */               \
     gcvFALSE, /* Special flag for NP2 texture. */    \
     gcvFALSE, /* device open.       */               \
-    gcvNULL, /* destructor         */               \
+    {gcvNULL}, /* destructor         */               \
     gcvNULL, /* accessLock         */               \
     gcvNULL, /* GL FE compiler lock*/               \
     gcvNULL, /* CL FE compiler lock*/               \
@@ -364,6 +369,8 @@ typedef struct _gcsTLS {
 
     /* Driver tls. */
     gcsDRIVER_TLS_PTR           driverTLS[gcvTLS_KEY_COUNT];
+
+    gctINT32                    cmd_buf_size;
 
 #if gcdENABLE_SW_PREEMPTION
     /* PriorityID. */
@@ -919,6 +926,7 @@ gcoHAL_CommandBufferAutoCommit(gcoHAL Hal, gctBOOL AutoCommit);
 gceSTATUS
 gcoHAL_CommandBufferAutoSync(gcoHAL Hal, gctBOOL AutoSync);
 
+
 #if gcdENABLE_MULTI_DEVICE_MANAGEMENT
 gceSTATUS
 gcoHAL_SwitchContext(IN gcoHAL Hal,
@@ -974,6 +982,7 @@ gcoOS_LockCLFECompiler(void);
 gceSTATUS
 gcoOS_UnLockCLFECompiler(void);
 
+/* Get access to the thread local storage. */
 gceSTATUS
 gcoOS_GetTLS(OUT gcsTLS_PTR *TLS);
 
@@ -1068,6 +1077,12 @@ gcoOS_DeviceControl(IN gcoOS Os,
                     IN gctSIZE_T InputBufferSize,
                     IN gctPOINTER OutputBuffer,
                     IN gctSIZE_T OutputBufferSize);
+
+gceSTATUS
+gcoOS_DeviceControlWithDRM(IN gcoOS Os,
+                    IN gcsHAL_INTERFACE_PTR InputBuffer,
+                    IN gcsHAL_INTERFACE_PTR OutputBuffer);
+
 
 #define gcmOS_SAFE_FREE(os, mem) \
     gcoOS_Free(os, mem); \
@@ -1601,10 +1616,6 @@ void gcoOS_ModuleDestructor(void);
  */
 
 #define gcdPI       3.14159265358979323846f
-
-/* Kernel. */
-gctINT
-gckMATH_ModuloInt(IN gctINT X, IN gctINT Y);
 
 /* User. */
 gctUINT32
@@ -2412,6 +2423,7 @@ gceSTATUS
 gcoHEAP_ProfileEnd(IN gcoHEAP Heap, IN gctCONST_STRING Title);
 #endif
 
+
 /******************************************************************************
  ******************************* Debugging Macros *****************************
  ******************************************************************************/
@@ -2995,6 +3007,53 @@ gcoOS_ProfileDB(IN gctCONST_STRING Function, IN OUT gctBOOL_PTR Initialized);
 #define gcmOPT_VALUE_INDEX(ptr, index) (((ptr) == gcvNULL) ? 0 : ptr[index])
 #define gcmOPT_POINTER(ptr)            (((ptr) == gcvNULL) ? gcvNULL : *(ptr))
 #define gcmOPT_STRING(ptr)             (((ptr) == gcvNULL) ? "(nil)" : (ptr))
+
+#if gcdENABLE_DRM_DEBUG
+# define gcmkHEADER_DRM()                                               \
+        do {                                                            \
+            gckOS_DebugTraceZone(gcvLEVEL_VERBOSE, _GC_OBJ_ZONE, \
+                           "++%s(%d)", __FUNCTION__, __LINE__);         \
+        } while (0)
+
+# define gcmkHEADER_DRM_ARG(Text, ...)                               \
+    do {                                                             \
+        gckOS_DebugTraceZone(gcvLEVEL_VERBOSE, _GC_OBJ_ZONE, \
+                       "++%s(%d): " Text, \
+                       __FUNCTION__, __LINE__, __VA_ARGS__);         \
+    } while (0)
+
+# define gcmkFOOTER_DRM()                                              \
+        do {                                                           \
+            gckOS_DebugTraceZone(gcvLEVEL_VERBOSE, _GC_OBJ_ZONE, \
+                           "--%s(%d): status=%d(%s)", \
+                           __FUNCTION__, __LINE__, status, \
+                           gckOS_DebugStatus2Name(status));            \
+        } while (0)
+
+# define gcmkFOOTER_DRM_ARG(Text, ...)                               \
+    do {                                                             \
+        gckOS_DebugTraceZone(gcvLEVEL_VERBOSE, _GC_OBJ_ZONE, \
+                       "--%s(%d): " Text, \
+                       __FUNCTION__, __LINE__, __VA_ARGS__);         \
+    } while (0)
+#else
+# define gcmkHEADER_DRM()                                            \
+        do {                                                         \
+        } while (0)
+
+# define gcmkHEADER_DRM_ARG(Text, ...)                               \
+    do {                                                             \
+    } while (0)
+
+# define gcmkFOOTER_DRM()                                            \
+        do {                                                         \
+        } while (0)
+
+# define gcmkFOOTER_DRM_ARG(Text, ...)                               \
+    do {                                                             \
+    } while (0)
+
+#endif
 
 void
 gckOS_Print(IN gctCONST_STRING Message, ...) CHECK_PRINTF_FORMAT(1, 2);
@@ -3722,20 +3781,20 @@ gckOS_DebugStatus2Name(gceSTATUS status);
  */
 #define gcmkSAFECASTSIZET(x, y)                                   \
     do {                                                          \
-        gctUINT32 tmp = (gctUINT32)(y);                           \
+        gctSIZE_T tmp = y;                                        \
         if (gcmSIZEOF(gctSIZE_T) > gcmSIZEOF(gctUINT32)) {        \
             gcmkASSERT(tmp <= gcvMAXUINT32);                      \
         }                                                         \
-        (x) = tmp;                                                \
+        (x) = (gctUINT32)tmp;                                     \
     } while (gcvFALSE)
 
 #define gcmSAFECASTSIZET(x, y)                                    \
     do {                                                          \
-        gctUINT32 tmp = (gctUINT32)(y);                           \
+        gctSIZE_T tmp = y;                                        \
         if (gcmSIZEOF(gctSIZE_T) > gcmSIZEOF(gctUINT32)) {        \
             gcmASSERT(tmp <= gcvMAXUINT32);                       \
         }                                                         \
-        (x) = tmp;                                                \
+        (x) = (gctUINT32)tmp;                                     \
     } while (gcvFALSE)
 
 /*******************************************************************************
@@ -3756,11 +3815,11 @@ gckOS_DebugStatus2Name(gceSTATUS status);
  */
 #define gcmkSAFECASTPHYSADDRT(x, y)                               \
     do {                                                          \
-        gctUINT32 tmp = (gctUINT32)(y);                           \
+        gctPHYS_ADDR_T tmp = y;                                   \
         if (gcmSIZEOF(gctPHYS_ADDR_T) > gcmSIZEOF(gctUINT32)) {   \
             gcmkASSERT(tmp <= gcvMAXUINT32);                      \
         }                                                         \
-        (x) = tmp;                                                \
+        (x) = (gctUINT32)tmp;                                     \
     } while (gcvFALSE)
 
 /*******************************************************************************
@@ -3781,11 +3840,11 @@ gckOS_DebugStatus2Name(gceSTATUS status);
  */
 #define gcmSAFECASTPHYSADDRT(x, y)                                \
     do {                                                          \
-        gctUINT32 tmp = (gctUINT32)(y);                           \
+        gctPHYS_ADDR_T tmp = y;                                   \
         if (gcmSIZEOF(gctPHYS_ADDR_T) > gcmSIZEOF(gctUINT32)) {   \
             gcmASSERT(tmp <= gcvMAXUINT32);                       \
         }                                                         \
-        (x) = tmp;                                                \
+        (x) = (gctUINT32)tmp;                                     \
     } while (gcvFALSE)
 
 /*******************************************************************************
@@ -3806,11 +3865,11 @@ gckOS_DebugStatus2Name(gceSTATUS status);
  */
 #define gcmkSAFECASTVA(x, y)                                     \
     do {                                                         \
-        gctUINT32 tmp = (gctUINT32)(y);                          \
+        gctADDRESS tmp = y;                                      \
         if (gcmSIZEOF(gctADDRESS) > gcmSIZEOF(gctUINT32)) {      \
             gcmkASSERT(tmp <= gcvMAXUINT32);                     \
         }                                                        \
-        (x) = tmp;                                               \
+        (x) = (gctUINT32)tmp;                                    \
     } while (gcvFALSE)
 
 /*******************************************************************************
@@ -3831,11 +3890,11 @@ gckOS_DebugStatus2Name(gceSTATUS status);
  */
 #define gcmSAFECASTVA(x, y)                                      \
     do {                                                         \
-        gctUINT32 tmp = (gctUINT32)(y);                          \
+        gctADDRESS tmp = y;                                      \
         if (gcmSIZEOF(gctADDRESS) > gcmSIZEOF(gctUINT32)) {      \
             gcmASSERT(tmp <= gcvMAXUINT32);                      \
         }                                                        \
-        (x) = tmp;                                               \
+        (x) = (gctUINT32)tmp;                                    \
     } while (gcvFALSE)
 
 /*******************************************************************************
@@ -4305,7 +4364,7 @@ gcoHAL_GetUserDebugOption(void);
             *OutSide = Memory;                                                           \
         } else {                                                                         \
             CommandBuffer->currentByteSize =                                             \
-                (gctUINT32)((gctUINT8_PTR)Memory - (gctUINT8_PTR)CommandBuffer->buffer); \
+                (gctUINT8_PTR)((gctPOINTER)Memory) - (gctUINT8_PTR)((gctPOINTER)(CommandBuffer->buffer)); \
                                                                                          \
             gcmONERROR(gcoBUFFER_EndTEMPCMDBUF(\
                 Hardware->engine[CurrentEngine].buffer, gcvFALSE));                      \
@@ -4546,7 +4605,7 @@ gcoHAL_GetUserDebugOption(void);
             *OutSide = Memory;                                                           \
         } else {                                                                         \
             CommandBuffer->currentByteSize =                                             \
-                (gctUINT32)((gctUINT8_PTR)Memory - (gctUINT8_PTR)CommandBuffer->buffer); \
+                (gctUINT8_PTR)Memory - (gctUINT8_PTR)CommandBuffer->buffer;              \
                                                                                          \
             gcmONERROR(gcoBUFFER_EndTEMPCMDBUF(\
                 Hardware->engine[gcvENGINE_RENDER].buffer, gcvFALSE));                   \
@@ -4923,7 +4982,7 @@ gcoHAL_GetUserDebugOption(void);
                 { \
                     /* GS/TS must be bundled. */ \
                     attribBufSizeInKB = 42; \
-                    attribCacheRatio = (Hardware->identity.chipModel != gcv8800)? \
+                    attribCacheRatio = (Hardware->identity.chipModel == gcv8800)? \
                                         0x3 \
                                        : 0x4; \
                 } \

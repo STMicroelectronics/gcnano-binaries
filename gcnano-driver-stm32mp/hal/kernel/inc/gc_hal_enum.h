@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_enum_h_
 #define __gc_hal_enum_h_
@@ -1281,6 +1280,7 @@ typedef enum _gcePLS_VALUE {
     gcePLS_VALUE_EGL_DISPLAY_INFO,
     gcePLS_VALUE_EGL_CONFIG_FORMAT_INFO,
     gcePLS_VALUE_EGL_DESTRUCTOR_INFO,
+    gcePLS_VALUE_OPENCL_DESTRUCTOR_INFO,
 } gcePLS_VALUE;
 
 #if gcdENABLE_3D
@@ -1349,6 +1349,8 @@ typedef enum _gceAPI {
     gcvAPI_OPENVG,
     gcvAPI_OPENCL,
     gcvAPI_OPENVK,
+    gcvAPI_EGL,
+    gcvAPI_COUNT,
 } gceAPI;
 
 typedef enum _gceWHERE {
@@ -1521,6 +1523,7 @@ typedef enum _gceSPLIT_DRAW_TYPE {
     gcvSPLIT_DRAW_STIPPLE,
     gcvSPLIT_DRAW_WIDE_LINE,
     gcvSPLIT_DRAW_LINES_HW_ZERO_AREA_LINE_PATCH,
+    gcvSPLIT_DRAW_TRIANGLES,
     gcvSPLIT_DRAW_LAST
 } gceSPLIT_DRAW_TYPE;
 
@@ -1989,11 +1992,8 @@ enum {
 #if gcdUSE_CAPBUF
 typedef enum _gceCAPBUF_META_TYPE {
     gcvCAPBUF_META_TYPE_BASE         = 0,
-    gcvCAPBUF_META_TYPE_STATE_BUFFER = 0,
     gcvCAPBUF_META_TYPE_DRAW_ID,
     gcvCAPBUF_META_TYPE_SH_UNIFORM,
-    gcvCAPBUF_META_TYPE_VIP_SRAM,
-    gcvCAPBUF_META_TYPE_AXI_SRAM,
     gcvCAPBUF_META_TYPE_PPU_PARAMETERS,
     gcvCAPBUF_META_TYPE_VIP_SRAM_REMAP,
     gcvCAPBUF_META_TYPE_AXI_SRAM_REMAP,
@@ -2007,6 +2007,12 @@ typedef enum _gceCAPBUF_META_TYPE {
     gcvCAPBUF_META_TYPE_GPU_SYNC_CMD,
     gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_PRINTFADDRESS,
     gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_MAXPRINTFADDRESS,
+    gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_CIRCULAR_BUFFER_START_ADDR,
+    gcvCAPBUF_META_TYPE_SH_UNIFORM_ARGS_CIRCULAR_BUFFER_END_ADDR_PLUS1,
+    gcvCAPBUF_META_TYPE_SP_CHIPID,
+    gcvCAPBUF_META_TYPE_NN_TP_CHIPID,
+    gcvCAPBUF_META_TYPE_NNLOOP_CHIPID,
+    gcvCAPBUF_META_TYPE_SH_CHIPID,
     /* Keep it at the end of the list. */
     gcvCAPBUF_META_TYPE_COUNT
 } gceCAPBUF_META_TYPE;
@@ -2026,9 +2032,11 @@ typedef enum _gceCAPBUF_SH_UNIFROM_ARGS {
     /* add new uniform data source type by generate function, fix above type if need */
 
     /* uniform data generate by function gcfVX_LoadKernelArgValues */
-    gcvCAPBUF_SH_UNIFORM_ARGS_40BIT_LOADKERNEL_IMAGE_ADDR,
+    gcvCAPBUF_SH_UNIFORM_ARGS_CIRCULAR_BUFFER_START_ADDR,
+    gcvCAPBUF_SH_UNIFORM_ARGS_CIRCULAR_BUFFER_END_ADDR_PLUS1,
 
-    /* uniform data generate by function gcfVX_LoadKernelArgValues */
+    /* uniform data generate by function gcfVX_FlushVIRKernelResource */
+    gcvCAPBUF_SH_UNIFORM_ARGS_40BIT_LOADKERNEL_IMAGE_ADDR,
     gcvCAPBUF_SH_UNIFORM_ARGS_40BIT_VIRKERNEL_UNIFORMTABLE,
 
     /* Keep it at the end of the list. */
@@ -2049,6 +2057,9 @@ typedef enum _gceCAPBUF_SH_UNIFORM_STATE_DATA_TYPE
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_LOW_HIGH_40BIT_PHY_ADDR_HIGH,
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_PRINTFADDRESS,
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_MAXPRINTFADDRESS,
+
+    gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_CIRCULAR_BUFFER_START_ADDR,
+    gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_CIRCULAR_BUFFER_END_ADDR_PLUS1,
     /* Keep it at the end of the list. */
     gcvCAPBUF_SH_UNIFORM_STATE_DATA_TYPE_COUNT
 } gceCAPBUF_SH_UNIFORM_STATE_DATA_TYPE;

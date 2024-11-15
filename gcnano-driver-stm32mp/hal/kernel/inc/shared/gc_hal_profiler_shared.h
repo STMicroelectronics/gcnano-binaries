@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_profiler_shared_h_
 #define __gc_hal_profiler_shared_h_
@@ -341,7 +340,23 @@ typedef struct _gcsPROFILER_VIP_PROBE_COUNTERS {
 
     gctUINT32       nn_reserved_counter[4 * MODULE_NN_RESERVED_COUNTER_NUM];
     gctUINT32       nn_total_idle_cycle_core_overflow[4];
-    gctUINT32       nn_total_idle_cycle_core[32];
+    gctUINT32       nn_total_idle_cycle_core[16];
+    gctUINT32       nn_wait_for_in_event_cycle;
+    gctUINT32       nn_wait_for_out_event_cycle;
+    gctUINT32       nn_wait_for_in_event_cycle_overflow;
+    gctUINT32       nn_wait_for_out_event_cycle_overflow;
+    gctUINT32       nn_wait_for_in0_event_cycle;
+    gctUINT32       nn_wait_for_in1_event_cycle;
+    gctUINT32       nn_wait_for_in0_event_cycle_overflow;
+    gctUINT32       nn_wait_for_in1_event_cycle_overflow;
+    gctUINT32       nn_wait_for_out0_event_cycle;
+    gctUINT32       nn_wait_for_out1_event_cycle;
+    gctUINT32       nn_wait_for_out2_event_cycle;
+    gctUINT32       nn_wait_for_out0_event_cycle_overflow;
+    gctUINT32       nn_wait_for_out1_event_cycle_overflow;
+    gctUINT32       nn_wait_for_out2_event_cycle_overflow;
+    gctUINT32       nn_idel_cycle;
+    gctUINT32       nn_idel_cycle_overflow;
 
     /* TP */
     gctUINT32       tp_layer_id;

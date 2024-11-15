@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_linux.h"
 #include "gc_hal_kernel_allocator.h"
@@ -252,7 +251,8 @@ reserved_mem_mmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
     pfn = (res->start >> PAGE_SHIFT) + skipPages;
 
     /* Make this mapping non-cached. */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
+    ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(CONFIG_ANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else
     vma->vm_flags |= gcdVM_FLAGS;

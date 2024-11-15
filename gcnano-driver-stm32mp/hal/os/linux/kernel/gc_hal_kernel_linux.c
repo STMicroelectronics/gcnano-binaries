@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #include "gc_hal_kernel_linux.h"
 
@@ -491,6 +490,11 @@ gckKERNEL_MapVideoMemory(gckKERNEL Kernel, gctBOOL InUserSpace, gcePOOL Pool,
             bytes = device->externalSize;
             break;
 
+        case gcvPOOL_LOCAL_EXCLUSIVE:
+            physHandle = (PLINUX_MDL)device->exclusivePhysical;
+            bytes = device->exclusiveSize;
+            break;
+
         case gcvPOOL_SYSTEM:
             /* System memory. */
             physHandle = (PLINUX_MDL)device->contiguousPhysicals[device->memIndex];
@@ -534,6 +538,14 @@ gckKERNEL_MapVideoMemory(gckKERNEL Kernel, gctBOOL InUserSpace, gcePOOL Pool,
         bytes = Bytes;
         Offset = 0;
     }
+
+#if gcdENABLE_TTM
+    if (*Logical) {
+        logical = *Logical;
+        gcmkONERROR(gckOS_LockPages(Kernel->os, physHandle, bytes, gcvFALSE, &logical));
+        goto OnError;
+    }
+#endif
 
     gcmkONERROR(gckOS_LockPages(Kernel->os, physHandle, bytes, gcvFALSE, &logical));
     /* Build logical address of specified address. */
@@ -610,6 +622,11 @@ gckKERNEL_UnmapVideoMemory(gckKERNEL Kernel, gcePOOL Pool, gctPHYS_ADDR Physical
             bytes = device->externalSize;
             break;
 
+        case gcvPOOL_LOCAL_EXCLUSIVE:
+            physHandle = (PLINUX_MDL)device->exclusivePhysical;
+            bytes = device->exclusiveSize;
+            break;
+
         case gcvPOOL_SYSTEM:
             /* System memory. */
             physHandle = (PLINUX_MDL)device->contiguousPhysicals[device->memIndex];
@@ -643,6 +660,7 @@ gckKERNEL_UnmapVideoMemory(gckKERNEL Kernel, gcePOOL Pool, gctPHYS_ADDR Physical
 
         default:
             /* Invalid memory pool. */
+            WARN_ON(1);
             gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
         }
     } else {

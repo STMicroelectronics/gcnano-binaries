@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 #ifndef __gc_hal_dump_h_
 #define __gc_hal_dump_h_
@@ -105,6 +104,18 @@
  */
 #ifndef gcdDUMP_VERIFY_PER_DRAW
 #define gcdDUMP_VERIFY_PER_DRAW     0
+#endif
+
+ /*
+  *  gcdDUMP_VERIFY_PER_FRAME
+  *
+  *      Sub feature of gcdDUMP.
+  *      When set to 1, verify every frame
+  *      to ease simulation debug.
+  *      Only valid for ES3 driver for now.
+  */
+#ifndef gcdDUMP_VERIFY_PER_FRAME
+#define gcdDUMP_VERIFY_PER_FRAME     0
 #endif
 
 /* Standalone dump features below. */

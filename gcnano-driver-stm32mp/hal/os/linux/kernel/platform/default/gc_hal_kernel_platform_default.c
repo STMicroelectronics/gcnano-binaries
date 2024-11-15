@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2023 Vivante Corporation
+*    Copyright (c) 2014 - 2024 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2023 Vivante Corporation
+*    Copyright (C) 2014 - 2024 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -51,7 +51,6 @@
 *    version of this file.
 *
 *****************************************************************************/
-
 
 /*
  *   dts node example:
@@ -90,6 +89,11 @@
 # include <linux/clk.h>
 #endif
 
+#if gcdENABLE_VM_PASSTHROUGH
+#include <net/sock.h>
+#include <linux/vm_sockets.h>
+#endif
+
 /* Disable MSI for internal FPGA build except PPC */
 #if gcdFPGA_BUILD
 # define USE_MSI            0
@@ -102,6 +106,13 @@
 #define gcdDISABLE_NODE_OFFSET 1
 
 #define gcdDTS_POWER_DOMAIN 0
+
+#if gcdENABLE_VM_PASSTHROUGH
+#define PORT            1234
+#define EXTER_MEM_BAR   4   /* TBD */
+
+gctPHYS_ADDR_T ddr_offset = 0;
+#endif
 
 gceSTATUS
 _AdjustParam(gcsPLATFORM *Platform, gcsMODULE_PARAMETERS *Args);
@@ -409,10 +420,6 @@ static int gpu_parse_dt(struct platform_device *pdev, gcsMODULE_PARAMETERS *para
         params->baseAddress = addr;
     }
 
-    value = of_get_property(root, "phys-size", gcvNULL);
-    if (value)
-        params->bankSize = *value;
-
     value = of_get_property(root, "recovery", gcvNULL);
     if (value)
         params->recovery = *value;
@@ -500,7 +507,7 @@ struct _gcsPLATFORM_PCIE default_platform = {
     },
 };
 
-gctINT
+static gctINT
 _QueryBarInfo(struct pci_dev *Pdev, gctPHYS_ADDR_T *BarAddr, gctUINT64 *BarSize, gctUINT BarNum)
 {
     gctUINT addr, size;
@@ -580,6 +587,15 @@ static const struct pci_device_id vivpci_ids[] = {
     .class_mask  = 0x000000,
     .vendor      = 0x10ee,
     .device      = 0x7014,
+    .subvendor   = PCI_ANY_ID,
+    .subdevice   = PCI_ANY_ID,
+    .driver_data = 0
+  },
+  {
+    .class       = 0x000000,
+    .class_mask  = 0x000000,
+    .vendor      = 0x10ee,
+    .device      = 0xa032,
     .subvendor   = PCI_ANY_ID,
     .subdevice   = PCI_ANY_ID,
     .driver_data = 0
@@ -664,6 +680,151 @@ static struct _gcsPLATFORM default_platform = {
 };
 #endif
 
+#if gcdENABLE_VM_PASSTHROUGH
+static gceSTATUS _GetvGPURes(gctUINT pdev_index, gcsBARINFO *bar, gcsMODULE_PARAMETERS *args)
+{
+    gctPHYS_ADDR_T externalOffset = 0, exclusiveOffset = 0;
+    gctSIZE_T externalSize = 0, exclusiveSize = 0;
+    gctUINT cluster_num = 0, cluster_mask = 0;
+    struct socket *sock = NULL;
+    struct sockaddr_vm addr = {0};
+    struct msghdr msg = {0};
+    struct kvec vec = {0};
+    gctCHAR buffer[128], *cur = buffer;
+    gceSTATUS status;
+    gctINT ret;
+
+    if (!bar || !args) {
+        status = gcvSTATUS_INVALID_ARGUMENT;
+        goto OnError;
+    }
+
+    if (args->vGPUId < 0 || args->vGPUId > 7) {
+        gcmkPRINT("[vGPU guest] For vGPU pass-through, a valid vGPU ID is required. \n");
+        status = gcvSTATUS_INVALID_ARGUMENT;
+        goto OnError;
+    }
+
+    /* Create a vsock socket */
+    ret = sock_create_kern(&init_net, AF_VSOCK, SOCK_STREAM, 0, &sock);
+    if (ret < 0) {
+        gcmkPRINT("[vGPU guest] sock_create_kern failed: %d\n", ret);
+        status = gcvSTATUS_NOT_SUPPORTED;
+        goto OnError;
+    }
+
+    /* Fill in host address */
+    addr.svm_family = AF_VSOCK;
+    addr.svm_cid = VMADDR_CID_HOST;
+    addr.svm_port = PORT;
+
+    /* Connect to the host */
+    ret = kernel_connect(sock, (struct sockaddr *)&addr, sizeof(addr), 0);
+    if (ret < 0) {
+        gcmkPRINT("[vGPU guest] kernel_connect failed: %d\n", ret);
+        status = gcvSTATUS_NOT_SUPPORTED;
+        goto OnError;
+    }
+
+    gckOS_ZeroMemory(buffer, sizeof(buffer));
+    snprintf(buffer, sizeof(buffer), "%u", (gctUINT)args->vGPUId);
+
+    /* Send the vGPU ID info to the host */
+    vec.iov_base = buffer;
+    vec.iov_len = sizeof(buffer);
+
+    ret = kernel_sendmsg(sock, &msg, &vec, 1, vec.iov_len);
+    if (ret < 0) {
+        gcmkPRINT("[vGPU guest] kernel_sendmsg failed: %d\n", ret);
+        status = gcvSTATUS_NOT_SUPPORTED;
+        goto OnError;
+    }
+
+    /* Wait a response from the host */
+    gckOS_ZeroMemory(buffer, sizeof(buffer));
+
+    vec.iov_base = buffer;
+    vec.iov_len = sizeof(buffer);
+
+    ret = kernel_recvmsg(sock, &msg, &vec, 1, vec.iov_len, 0);
+    if (ret <= 0) {
+        gcmkPRINT("[vGPU guest] kernel_recvmsg failed: %d\n", ret);
+        status = gcvSTATUS_NOT_SUPPORTED;
+        goto OnError;
+    }
+
+    /* Parse the resource information */
+    cur = strstr(buffer, "Cluster num:");
+    if (cur) {
+        cur += 12;
+        cluster_num = (gctUINT)simple_strtoul(cur, NULL, 10);
+    } else {
+        cluster_num = 0;
+    }
+
+    cur = strstr(buffer, "external offset:");
+    if (cur) {
+        cur += 16;
+        externalOffset = simple_strtoull(cur, NULL, 16);
+    } else {
+        externalOffset = 0;
+    }
+
+    cur = strstr(buffer, "external size:");
+    if (cur) {
+        cur += 14;
+        externalSize = (gctSIZE_T)simple_strtoull(cur, NULL, 16);
+    } else {
+        externalSize = 0;
+    }
+
+    cur = strstr(buffer, "exclusive offset:");
+    if (cur) {
+        cur += 17;
+        exclusiveOffset = simple_strtoull(cur, NULL, 16);
+    } else {
+        exclusiveOffset = 0;
+    }
+
+    cur = strstr(buffer, "exclusive size:");
+    if (cur) {
+        cur += 15;
+        exclusiveSize = (gctSIZE_T)simple_strtoull(cur, NULL, 16);
+    } else {
+        exclusiveSize = 0;
+    }
+
+    while (cluster_num) {
+        cluster_mask |= 1 << (cluster_num - 1);
+        cluster_num--;
+    }
+    args->userClusterMasks[gcvCORE_MAJOR] = cluster_mask;
+
+    if (bar[EXTER_MEM_BAR].available) {
+        args->externalBase[pdev_index] = bar[EXTER_MEM_BAR].base + externalOffset;
+        args->externalSize[pdev_index] = externalSize;
+    } else {
+        args->externalSize[pdev_index] = 0;
+    }
+
+    /* TODO: exclusive memory resource */
+
+    sock_release(sock);
+    return gcvSTATUS_OK;
+
+OnError:
+    if (args) {
+        args->userClusterMasks[gcvCORE_MAJOR] = 0;
+        args->externalSize[pdev_index] = 0;
+        args->exclusiveSize[pdev_index] = 0;
+    }
+
+    if (sock)
+        sock_release(sock);
+    return status;
+}
+#endif
+
 gceSTATUS
 _AdjustParam(gcsPLATFORM *Platform, gcsMODULE_PARAMETERS *Args)
 {
@@ -688,6 +849,9 @@ _AdjustParam(gcsPLATFORM *Platform, gcsMODULE_PARAMETERS *Args)
     unsigned long reg_max_offset = 0;
     unsigned int reg_size = 0;
     int ret;
+#if gcdENABLE_VM_PASSTHROUGH
+    gceSTATUS status = gcvSTATUS_OK;
+#endif
 
     if (Args->irqs[gcvCORE_2D] != -1)
         Args->irqs[gcvCORE_2D] = irqline;
@@ -730,6 +894,10 @@ _AdjustParam(gcsPLATFORM *Platform, gcsMODULE_PARAMETERS *Args)
                 continue;
 
             pcie_platform->pcie_info[pdev_index].bar[i].available = gcvTRUE;
+#if gcdENABLE_VM_PASSTHROUGH
+            if (i == EXTER_MEM_BAR)
+                ddr_offset = pcie_platform->pcie_info[pdev_index].bar[i].base;
+#endif
             i += ret;
         }
 
@@ -845,10 +1013,20 @@ _AdjustParam(gcsPLATFORM *Platform, gcsMODULE_PARAMETERS *Args)
                                            + sram_offset;
         }
 
+#if gcdENABLE_VM_PASSTHROUGH
+        Args->vGPUType = gcvVGPU_SRIOV;
+
+        /* For GPU pass-through virtualization, get the cluster and memory resources of vGPU from host driver */
+        status = _GetvGPURes(pdev_index, pcie_platform->pcie_info[pdev_index].bar, Args);
+        if (gcmIS_ERROR(status))
+            return status;
+#endif
+
         dev_index++;
     }
 
     Args->contiguousRequested = gcvTRUE;
+
 #endif
     return gcvSTATUS_OK;
 }
@@ -883,6 +1061,13 @@ _GetGPUPhysical(gcsPLATFORM *Platform, gctPHYS_ADDR_T CPUPhysical, gctPHYS_ADDR_
             }
         }
     }
+
+#if gcdENABLE_VM_PASSTHROUGH
+    /* TODO: need to refine this part.*/
+    *GPUPhysical = CPUPhysical - ddr_offset;
+
+    return gcvSTATUS_OK;
+#endif
 #endif
 
     *GPUPhysical = CPUPhysical;
