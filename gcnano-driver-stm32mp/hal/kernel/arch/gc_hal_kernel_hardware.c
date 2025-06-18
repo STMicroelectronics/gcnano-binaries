@@ -1834,7 +1834,11 @@ _InitPageTableArray(gckHARDWARE Hardware)
     gcmkHEADER_ARG("Hardware=%p", Hardware);
 
     if (Hardware->options.secureMode == gcvSECURE_IN_NORMAL) {
+#if (gcdEXTERNAL_SRAM_USAGE == 1)
+        gcePOOL pool = gcvPOOL_EXTERNAL_SRAM;
+#else
         gcePOOL pool = gcvPOOL_DEFAULT;
+#endif
         gctUINT32 flags = gcvALLOC_FLAG_CONTIGUOUS;
 
 #if gcdENABLE_CACHEABLE_COMMAND_BUFFER
@@ -2114,10 +2118,10 @@ gckHARDWARE_Construct(gckOS Os, gckKERNEL Kernel, gckHARDWARE *Hardware)
     hardware->lastWaitLink = ~0U;
     hardware->lastEnd = ~0U;
     hardware->globalSemaphore = gcvNULL;
-#if gcdENABLE_FSCALE_VAL_ADJUST
     hardware->powerOnFscaleVal = 64;
     hardware->powerOnShaderFscaleVal = 64;
-#endif
+    hardware->supportUpdateShaderClock = (hardware->identity.chipModel < gcv8000) ?
+                                          gcvTRUE : gcvFALSE;
 #if gcdPOWEROFF_TIMEOUT
     hardware->powerOffTimeout = gcdPOWEROFF_TIMEOUT;
 #endif
@@ -5761,22 +5765,11 @@ _PmClockControl(gckHARDWARE Hardware, gceCHIPPOWERSTATE State)
  32) ? ~0U : (~(~0U << ((1 ? 8:2) - (0 ? 8:2) + 1))))))) << (0 ? 8:2))) | (((gctUINT32) ((gctUINT32) (Hardware->powerOnFscaleVal) & ((gctUINT32) ((((1 ? 8:2) - (0 ? 8:2) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 8:2) - (0 ? 8:2) + 1))))))) << (0 ? 8:2)));
 
-        if (Hardware->powerOnShaderFscaleVal != ~0U &&
+        if (Hardware->supportUpdateShaderClock == gcvTRUE &&
+            Hardware->powerOnShaderFscaleVal != ~0U &&
             Hardware->powerOnShaderFscaleVal > 0 &&
-            Hardware->powerOnShaderFscaleVal < 64) {
+            Hardware->powerOnShaderFscaleVal <= 64) {
             needUpdateShaderClock = gcvTRUE;
-            shaderClock =   ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) ((gctUINT32) (0) & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16)))
-                          | ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17)))
-                          | ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) | (((gctUINT32) ((gctUINT32) (Hardware->powerOnShaderFscaleVal) & ((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1)))
-                          | ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0)));
         }
     }
 #endif
@@ -5806,8 +5799,27 @@ _PmClockControl(gckHARDWARE Hardware, gceCHIPPOWERSTATE State)
         gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
                                           0x00000, clock));
         if (needUpdateShaderClock) {
+            shaderClock =   ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) ((gctUINT32) (0) & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16)))
+                          | ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17)));
+
+            /* Disable the auto pulse eater. */
             gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
                                               0x0010C, shaderClock));
+
+            shaderClock = ((((gctUINT32) (shaderClock)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) | (((gctUINT32) ((gctUINT32) (Hardware->powerOnShaderFscaleVal) & ((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1)));
+
+            /* Scale the shader clock separately. */
+            gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
+                                              0x0010C,
+                                              ((((gctUINT32) (shaderClock)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0)))));
 
             /* Done loading the frequency scaler. */
             gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
@@ -7034,11 +7046,14 @@ gckHARDWARE_SetFscaleValue(gckHARDWARE Hardware, gctUINT32 FscaleValue, gctUINT3
 
     Hardware->powerOnFscaleVal = FscaleValue;
 
-    if (ShaderFscaleValue != ~0U &&
-        ShaderFscaleValue > 0 &&
-        ShaderFscaleValue <= 64) {
+    if (Hardware->supportUpdateShaderClock == gcvFALSE) {
+        /* Scale the shader clock along with the core clock. */
+        Hardware->powerOnShaderFscaleVal = Hardware->powerOnFscaleVal;
+    } else if (ShaderFscaleValue != ~0U && ShaderFscaleValue > 0 && ShaderFscaleValue <= 64) {
+        /* Scale the shader clock separately. */
         Hardware->powerOnShaderFscaleVal = ShaderFscaleValue;
     }
+
     if (Hardware->chipPowerState == gcvPOWER_ON) {
         gctUINT32 data;
 
@@ -7110,23 +7125,30 @@ gckHARDWARE_SetFscaleValue(gckHARDWARE Hardware, gctUINT32 FscaleValue, gctUINT3
  32) ? ~0U : (~(~0U << ((1 ? 9:9) - (0 ? 9:9) + 1))))))) << (0 ? 9:9)))));
 
         /* A option to support shader clock scaling. */
-        if (ShaderFscaleValue != ~0U && ShaderFscaleValue > 0 && ShaderFscaleValue <= 64) {
-            /* Scale the shader clock. */
+        if (Hardware->supportUpdateShaderClock == gcvTRUE &&
+            ShaderFscaleValue != ~0U && ShaderFscaleValue > 0 && ShaderFscaleValue <= 64) {
+
             clock = ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) ((gctUINT32) (0) & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) |
                     ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17))) |
-                    ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) | (((gctUINT32) ((gctUINT32) (ShaderFscaleValue) & ((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) |
-                    ((((gctUINT32) (0)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0)));
+ 32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17)));
 
+            /* Display the auto pulse eater. */
             gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
                                               0x0010C, clock));
+
+            clock = ((((gctUINT32) (clock)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) | (((gctUINT32) ((gctUINT32) (ShaderFscaleValue) & ((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1)));
+
+            /* Scale the shader clock separately. */
+            gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
+                                              0x0010C,
+                                              ((((gctUINT32) (clock)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 0:0) - (0 ? 0:0) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 0:0) - (0 ? 0:0) + 1))))))) << (0 ? 0:0)))));
 
             /* Done loading the frequency scaler. */
             gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,
@@ -7466,7 +7488,7 @@ gckHARDWARE_UpdateContextProfile(gckHARDWARE Hardware)
     gctUINT32 temp;
     gckCOMMAND command = Hardware->kernel->command;
     gctBOOL mutexAcquired = gcvFALSE;
-    gctUINT32 clusterCount = 1, loopcount = 0;
+    gctUINT32 clusterCount = 0, loopcount = 1;
     gctUINT32 pixelPipeNum = Hardware->identity.pixelPipes;
 
     gcmkHEADER_ARG("Hardware=0x%x", Hardware);
@@ -11365,21 +11387,31 @@ gckHARDWARE_SetClock(gckHARDWARE Hardware, gctUINT32 MCScale, gctUINT32 SHScale)
         gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel, 0x0010C, org));
 
         Hardware->powerOnFscaleVal = mcScale;
+
+        if (Hardware->supportUpdateShaderClock == gcvFALSE) {
+            /* Scale the shader clock along with the core clock. */
+            Hardware->powerOnShaderFscaleVal = Hardware->powerOnFscaleVal;
+        }
     }
 
     /* set SH clock */
-    if (shScale > 0 && shScale <= 64) {
+    if (Hardware->supportUpdateShaderClock == gcvTRUE &&
+        shScale > 0 && shScale <= 64) {
         gcmkONERROR(gckOS_ReadRegisterEx(Hardware->os, Hardware->kernel, 0x0010C, &org));
 
-        org = ((((gctUINT32) (org)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) | (((gctUINT32) ((gctUINT32) (shScale) & ((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
- 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1)));
         org = ((((gctUINT32) (org)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16))) | (((gctUINT32) ((gctUINT32) (0) & ((gctUINT32) ((((1 ? 16:16) - (0 ? 16:16) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 16:16) - (0 ? 16:16) + 1))))))) << (0 ? 16:16)));
         org = ((((gctUINT32) (org)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17))) | (((gctUINT32) ((gctUINT32) (1) & ((gctUINT32) ((((1 ? 17:17) - (0 ? 17:17) + 1) ==
  32) ? ~0U : (~(~0U << ((1 ? 17:17) - (0 ? 17:17) + 1))))))) << (0 ? 17:17)));
+
+        /* Disable the auto pulse eater. */
+        gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel, 0x0010C, org));
+
+        org = ((((gctUINT32) (org)) & ~(((gctUINT32) (((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1))) | (((gctUINT32) ((gctUINT32) (shScale) & ((gctUINT32) ((((1 ? 7:1) - (0 ? 7:1) + 1) ==
+ 32) ? ~0U : (~(~0U << ((1 ? 7:1) - (0 ? 7:1) + 1))))))) << (0 ? 7:1)));
 
         /* Write the clock control register. */
         gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os, Hardware->kernel,

@@ -288,8 +288,11 @@ OnError:
         /* Release the database mutex. */
         gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->db->dbMutex));
     }
-    if (record != gcvNULL)
+
+    if (record != gcvNULL) {
+        /* Release the record. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, record));
+    }
 
     /* Return the status. */
     gcmkFOOTER();

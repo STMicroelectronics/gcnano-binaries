@@ -256,8 +256,18 @@ _GetVIPCoreInfo(gckHARDWARE Hardware, gceVIP_ARCH_TYPE *ArchType,
     gcmkHEADER_ARG("Hardware=%p", Hardware);
     gcmkASSERT(database);
 
-    /* Make compiler happy. */
-    gcQueryFeatureDB(0, 0, 0, 0, 0);
+    if (!database) {
+        database = gcQueryFeatureDB(Hardware->identity.chipModel,
+                                    Hardware->identity.chipRevision,
+                                    Hardware->identity.productID,
+                                    Hardware->identity.ecoID,
+                                    Hardware->identity.customerID);
+
+        if (database == gcvNULL) {
+            /* Cannot find the database. */
+            gcmkONERROR(gcvSTATUS_NOT_FOUND);
+        }
+    }
 
     /* Choose one supported format. */
     if (database->NNCoreCount_INT8 > 0) {
@@ -338,11 +348,9 @@ _GetNNDataSize(gctUINT8 DataType, gctUINT32_PTR DataSize)
         break;
 
     default:
-        gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+        status = gcvSTATUS_INVALID_ARGUMENT;
         break;
     }
-
-    return gcvSTATUS_OK;
 
 OnError:
     return status;
@@ -895,11 +903,9 @@ gckPPU_SetSource(gctUINT32 Where, gctUINT32 Address,
         break;
 
     default:
-        gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+        status = gcvSTATUS_INVALID_ARGUMENT;
         break;
     }
-
-    return gcvSTATUS_OK;
 
 OnError:
     return status;

@@ -168,6 +168,9 @@ typedef enum _gceDATABASE_TYPE {
 #if gcdENABLE_CLEAR_FENCE
     gcvDB_USER_FENCE,
 #endif
+#if gcdDYNAMIC_COMMAND_QUEUES
+    gcvDB_COMMAND_QUEUE,
+#endif
 
     gcvDB_NUM_TYPES,
 } gceDATABASE_TYPE;
@@ -211,6 +214,13 @@ typedef struct _gcsDISPATCH_PERF_RECORD {
 } gcsDISPATCH_PERF_RECORD;
 #endif
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+typedef struct _gcsCOMMAND_QUEUE_RECORD {
+    gctUINT32 index[64];
+    gctUINT32 count;
+} gcsCOMMAND_QUEUE_RECORD;
+#endif
+
 typedef struct _gcsDATABASE            *gcsDATABASE_PTR;
 typedef struct _gcsDATABASE {
     /* Pointer to next entry is hash list. */
@@ -251,7 +261,11 @@ typedef struct _gcsDATABASE {
     gckMMU                              mmu;
 
 #if gcdENABLE_PERF_DISPATCH
-    gcsDISPATCH_PERF_RECORD     dispatchPerfRecords[gcvHAL_NUM_COMMAND_CODES];
+    gcsDISPATCH_PERF_RECORD             dispatchPerfRecords[gcvHAL_NUM_COMMAND_CODES];
+#endif
+
+#if gcdDYNAMIC_COMMAND_QUEUES
+    gcsCOMMAND_QUEUE_RECORD             commandQueueRecord;
 #endif
 } gcsDATABASE;
 
@@ -637,6 +651,21 @@ typedef struct _gcsCOMMAND_QUEUE {
     gcePOOL        pool;
 } gcsCOMMAND_QUEUE;
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+typedef struct _gcsCOMMAND_BUFFER *gckCOMMAND_BUFFER;
+
+struct _gcsCOMMAND_BUFFER {
+    gctSIGNAL         signal;
+    gckVIDMEM_NODE    videoMem;
+    gctPOINTER        logical;
+    gctADDRESS        address;
+    gcePOOL           pool;
+    gctUINT32         index;
+    gckCOMMAND_BUFFER prev;
+    gckCOMMAND_BUFFER next;
+};
+#endif
+
 /* gckCOMMAND object. */
 struct _gckCOMMAND {
     /* Object. */
@@ -673,9 +702,17 @@ struct _gckCOMMAND {
     /* Command queue power semaphore. */
     gctPOINTER                  powerSemaphore;
 
+#if !gcdDYNAMIC_COMMAND_QUEUES
     /* Command queues. */
     gcsCOMMAND_QUEUE            queues[gcdCOMMAND_QUEUES];
-
+#else
+    gckCOMMAND_BUFFER           commandBufferList;
+    gckCOMMAND_BUFFER           commandBufferTail;
+    gckCOMMAND_BUFFER           enterCommitTail;
+    gctUINT32                   commandCount;
+    /* Command buffer list mutex. */
+    gctPOINTER                  mutexList;
+#endif
     /* Current queue. */
     gckVIDMEM_NODE              videoMem;
     gctPOINTER                  logical;
@@ -1295,6 +1332,13 @@ typedef struct _gcsVIDMEM_NODE {
     gctPOINTER                  bo;
     gckVIDMEM_PIDINFO           pidInfo;
 
+#if gcdENABLE_DRM_FILE_DB
+    gctUINT32                   pid;
+#endif
+
+#if gcdDYNAMIC_COMMAND_QUEUES
+    gckCOMMAND_BUFFER           commandBuffer;
+#endif
 } gcsVIDMEM_NODE;
 
 typedef struct _gcsVIDMEM_HANDLE *gckVIDMEM_HANDLE;
@@ -2151,6 +2195,11 @@ gckCOMMAND_CheckFlushMMU(gckCOMMAND Command, gckHARDWARE Hardware);
 /* Switch to security first, then switch to non-security mode. */
 gceSTATUS
 gckCOMMAND_SwitchSecurityMode(gckCOMMAND Command, gckHARDWARE Hardware);
+
+#if gcdDYNAMIC_COMMAND_QUEUES
+gceSTATUS
+gckCOMMAND_FreeProcessQueue(gckCOMMAND Command, gctUINT32 ProcessID);
+#endif
 
 void
 gcsLIST_Init(gcsLISTHEAD_PTR Node);

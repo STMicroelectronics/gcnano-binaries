@@ -179,6 +179,194 @@ OnError:
  **      gckCOMMAND Command
  **          gckCOMMAND object has been updated with a new command queue.
  */
+#if gcdDYNAMIC_COMMAND_QUEUES
+static gceSTATUS
+_NewQueue(gckCOMMAND Command, gctBOOL Stalled)
+{
+    gceSTATUS status = gcvSTATUS_OK;
+    gckCOMMAND_BUFFER commandBuffer = gcvNULL;
+    gctINT currentIndex = Command->index;
+    gctUINT32 processID = 0;
+
+    gcmkHEADER_ARG("Command=%p", Command);
+
+    /* Get the next command buffer. */
+    commandBuffer = Command->commandBufferTail->next;
+
+    /* Test if command buffer is available. */
+    status = gckOS_WaitSignal(Command->os, commandBuffer->signal, gcvFALSE, 0);
+
+    gckOS_AcquireMutex(Command->os, Command->mutexList, gcvINFINITE);
+
+    if (status == gcvSTATUS_TIMEOUT) {
+        /* Construct new command buffer. */
+        gckCOMMAND_BUFFER temp = gcvNULL;
+#if !gcdCAPTURE_ONLY_MODE
+        gcePOOL pool = gcvPOOL_DEFAULT;
+#else
+        gcePOOL pool = gcvPOOL_VIRTUAL;
+#endif
+        gctSIZE_T size = Command->size;
+        gckVIDMEM_NODE videoMem = gcvNULL;
+        gctUINT32 allocFlag = 0;
+
+#if gcdENABLE_CACHEABLE_COMMAND_BUFFER
+        allocFlag = gcvALLOC_FLAG_CACHEABLE;
+#endif
+
+        if (Command->kernel->hardware->largeVAVersion)
+            allocFlag |= gcvALLOC_FLAG_32BIT_VA;
+
+        /* Allocate video memory node for command buffers. */
+        gcmkONERROR(gckKERNEL_AllocateVideoMemory(Command->kernel, 64, gcvVIDMEM_TYPE_COMMAND,
+                                                  allocFlag, &size, &pool, &videoMem));
+
+        gcmkONERROR(gckOS_Allocate(Command->os, gcmSIZEOF(struct _gcsCOMMAND_BUFFER), (gctPOINTER *)&temp));
+
+        gcmkONERROR(gckOS_ZeroMemory(temp, gcmSIZEOF(struct _gcsCOMMAND_BUFFER)));
+
+        temp->videoMem = videoMem;
+        temp->pool = pool;
+        videoMem->commandBuffer = temp;
+
+        /* Lock for GPU access. */
+        gcmkONERROR(gckVIDMEM_NODE_Lock(Command->kernel, videoMem, &temp->address));
+
+        /* Lock for kernel side CPU access. */
+        gcmkONERROR(gckVIDMEM_NODE_LockCPU(Command->kernel, videoMem, gcvFALSE, gcvFALSE,
+                                           &temp->logical));
+
+        gcmkONERROR(gckOS_CreateSignal(Command->os, gcvFALSE, &temp->signal));
+
+        gcmkONERROR(gckOS_Signal(Command->os, temp->signal, gcvFALSE));
+
+        temp->prev = Command->commandBufferTail;
+        temp->next = Command->commandBufferTail->next;
+        Command->commandBufferTail->next->prev = temp;
+        Command->commandBufferTail->next = temp;
+        Command->commandBufferTail = temp;
+        Command->commandCount++;
+
+        temp->index = Command->commandCount - 1;
+
+        gcmkONERROR(gckOS_GetProcessID(&processID));
+
+        gcmkONERROR(gckKERNEL_AddProcessDB(Command->kernel, processID, gcvDB_COMMAND_QUEUE,
+                                           gcmINT2PTR(temp->index), gcvNULL, 0));
+    } else {
+        gcmkONERROR(status);
+
+        Command->commandBufferTail = commandBuffer;
+    }
+
+    /* Reset command buffer. */
+    Command->newQueue = gcvTRUE;
+    Command->index = Command->commandBufferTail->index;
+    Command->videoMem = Command->commandBufferTail->videoMem;
+    Command->logical = Command->commandBufferTail->logical;
+    Command->address = Command->commandBufferTail->address;
+    Command->pool = Command->commandBufferTail->pool;
+    Command->offset = 0;
+
+    gcmkONERROR(gckOS_ReleaseMutex(Command->os, Command->mutexList));
+
+    if (currentIndex != -1) {
+        if (Stalled) {
+            gckOS_Signal(Command->os, Command->commandBufferTail->prev->signal, gcvTRUE);
+        } else {
+            /* Mark the command queue as available. */
+            gcmkONERROR(gckEVENT_Signal(Command->kernel->eventObj,
+                                        Command->commandBufferTail->prev->signal,
+                                        gcvKERNEL_COMMAND));
+        }
+    }
+
+    /* Success. */
+    gcmkFOOTER_ARG("Command->index=%d", Command->index);
+    return gcvSTATUS_OK;
+
+OnError:
+    /* Return the status. */
+    gcmkFOOTER();
+    return status;
+}
+
+gceSTATUS
+gckCOMMAND_FreeProcessQueue(gckCOMMAND Command, gctUINT32 ProcessID)
+{
+    gcsDATABASE_PTR database = gcvNULL;
+    gceSTATUS status;
+
+    gcmkHEADER_ARG("Command=%p", Command);
+
+    gcmkONERROR(gckKERNEL_FindDatabase(Command->kernel, ProcessID, gcvFALSE, &database));
+
+    while (database->commandQueueRecord.count > 0) {
+        gckCOMMAND_BUFFER commandBuffer = Command->commandBufferList->next;
+
+        while (commandBuffer != Command->commandBufferList) {
+            gckCOMMAND_BUFFER commandBuffer_temp = commandBuffer->next;
+
+            if (commandBuffer->index == database->commandQueueRecord.index[database->commandQueueRecord.count - 1]) {
+
+                gcmkONERROR(gckOS_AcquireMutex(Command->os, Command->mutexList, gcvINFINITE));
+
+                commandBuffer->prev->next = commandBuffer->next;
+                commandBuffer->next->prev = commandBuffer->prev;
+
+                gcmkONERROR(gckOS_ReleaseMutex(Command->os, Command->mutexList));
+
+                if (commandBuffer == Command->commandBufferTail) {
+                    gcmkONERROR(gckOS_WaitSignal(Command->os, Command->commandBufferList->signal, gcvFALSE, Command->kernel->timeOut));
+
+                    gcmkONERROR(gckOS_AcquireMutex(Command->os, Command->mutexList, gcvINFINITE));
+
+                    Command->commandBufferTail = Command->commandBufferList;
+
+                    /* Reset command buffer. */
+                    Command->newQueue = gcvTRUE;
+                    Command->index = Command->commandBufferTail->index;
+                    Command->videoMem = Command->commandBufferTail->videoMem;
+                    Command->logical = Command->commandBufferTail->logical;
+                    Command->address = Command->commandBufferTail->address;
+                    Command->pool = Command->commandBufferTail->pool;
+                    Command->offset = 0;
+
+                    gcmkONERROR(gckOS_ReleaseMutex(Command->os, Command->mutexList));
+                }
+
+                if (commandBuffer->logical) {
+                    gckMMU mmu = gcvNULL;
+
+                    gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(Command->kernel,
+                                                           commandBuffer->videoMem,
+                                                           0, gcvFALSE, gcvFALSE));
+
+                    gcmkONERROR(gckKERNEL_GetCurrentMMU(Command->kernel, gcvTRUE, 0, &mmu));
+
+                    gcmkVERIFY_OK(gckEVENT_Unlock(Command->kernel->eventObj,
+                                            gcvKERNEL_PIXEL, mmu, commandBuffer->videoMem));
+
+                }
+
+                database->commandQueueRecord.index[database->commandQueueRecord.count - 1] = 0;
+
+                if (database->commandQueueRecord.count-- == 1)
+                    break;
+            }
+            commandBuffer = commandBuffer_temp;
+        }
+    }
+
+    gcmkFOOTER();
+    return gcvSTATUS_OK;
+
+OnError:
+    gcmkFOOTER();
+    return status;
+}
+
+#else
 static gceSTATUS
 _NewQueue(gckCOMMAND Command, gctBOOL Stalled)
 {
@@ -257,6 +445,7 @@ OnError:
     gcmkFOOTER();
     return status;
 }
+#endif
 
 static gceSTATUS
 _IncrementCommitAtom(gckCOMMAND Command, gctBOOL Increment)
@@ -447,7 +636,11 @@ _DummyDraw(gckCOMMAND Command)
 
     if (dummyDrawType != gcvDUMMY_DRAW_INVALID) {
         gckHARDWARE_DummyDraw(hardware, gcvNULL,
+#if gcdDYNAMIC_COMMAND_QUEUES
+                              Command->commandBufferTail->address,
+#else
                               Command->queues[0].address,
+#endif
                               dummyDrawType, &dummyDrawBytes);
 
         /* Reserve space. */
@@ -455,7 +648,11 @@ _DummyDraw(gckCOMMAND Command)
                                        (gctPOINTER *)&pointer, &bufferSize));
 
         gckHARDWARE_DummyDraw(hardware, pointer,
+#if gcdDYNAMIC_COMMAND_QUEUES
+                              Command->commandBufferTail->address,
+#else
                               Command->queues[0].address,
+#endif
                               dummyDrawType, &dummyDrawBytes);
 
         if (Command->feType == gcvHW_FE_WAIT_LINK)
@@ -1222,6 +1419,11 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
     /* Create the power management semaphore. */
     gcmkONERROR(gckOS_CreateSemaphore(os, &command->powerSemaphore));
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+    /* Create the command buffer list mutex. */
+    gcmkONERROR(gckOS_CreateMutex(os, &command->mutexList));
+#endif
+
     /* Create the commit atom. */
     gcmkONERROR(gckOS_AtomConstruct(os, &command->atomCommit));
 
@@ -1249,6 +1451,9 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
         gctSIZE_T size = command->size;
         gckVIDMEM_NODE videoMem = gcvNULL;
         gctUINT32 allocFlag = 0;
+#if gcdDYNAMIC_COMMAND_QUEUES
+        gckCOMMAND_BUFFER temp = gcvNULL;
+#endif
 
 #if gcdENABLE_CACHEABLE_COMMAND_BUFFER
         allocFlag = gcvALLOC_FLAG_CACHEABLE;
@@ -1261,6 +1466,7 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
         gcmkONERROR(gckKERNEL_AllocateVideoMemory(Kernel, 64, gcvVIDMEM_TYPE_COMMAND,
                                                   allocFlag, &size, &pool, &videoMem));
 
+#if !gcdDYNAMIC_COMMAND_QUEUES
         command->queues[i].videoMem = videoMem;
         command->queues[i].pool = pool;
 
@@ -1274,6 +1480,38 @@ gckCOMMAND_Construct(gckKERNEL Kernel, gceHW_FE_TYPE FeType, gckCOMMAND *Command
         gcmkONERROR(gckOS_CreateSignal(os, gcvFALSE, &command->queues[i].signal));
 
         gcmkONERROR(gckOS_Signal(os, command->queues[i].signal, gcvTRUE));
+#else
+        gcmkONERROR(gckOS_Allocate(command->os, gcmSIZEOF(struct _gcsCOMMAND_BUFFER), (gctPOINTER *)&temp));
+
+        gcmkONERROR(gckOS_ZeroMemory(temp, gcmSIZEOF(struct _gcsCOMMAND_BUFFER)));
+
+        temp->videoMem = videoMem;
+        temp->pool = pool;
+
+        /* Lock for GPU access. */
+        gcmkONERROR(gckVIDMEM_NODE_Lock(command->kernel, videoMem, &temp->address));
+
+        /* Lock for kernel side CPU access. */
+        gcmkONERROR(gckVIDMEM_NODE_LockCPU(command->kernel, videoMem, gcvFALSE, gcvFALSE,
+                                           &temp->logical));
+
+        gcmkONERROR(gckOS_CreateSignal(command->os, gcvFALSE, &temp->signal));
+
+        gcmkONERROR(gckOS_Signal(command->os, temp->signal, gcvTRUE));
+
+        command->commandCount++;
+        temp->index = command->commandCount - 1;
+
+        if (i == 0) {
+            command->commandBufferList = command->commandBufferTail = temp->next = temp->prev = temp;
+        } else {
+            temp->prev = command->commandBufferTail;
+            temp->next = command->commandBufferTail->next;
+            command->commandBufferTail->next->prev = temp;
+            command->commandBufferTail->next = temp;
+            command->commandBufferTail = temp;
+        }
+#endif
     }
 
 #if gcdRECORD_COMMAND
@@ -1360,7 +1598,9 @@ OnError:
 gceSTATUS
 gckCOMMAND_Destroy(gckCOMMAND Command)
 {
+#if !gcdDYNAMIC_COMMAND_QUEUES
     gctINT i;
+#endif
 
     gcmkHEADER_ARG("Command=%p", Command);
 
@@ -1370,6 +1610,7 @@ gckCOMMAND_Destroy(gckCOMMAND Command)
     /* Stop the command queue. */
     gcmkVERIFY_OK(gckCOMMAND_Stop(Command));
 
+#if !gcdDYNAMIC_COMMAND_QUEUES
     for (i = 0; i < gcdCOMMAND_QUEUES; ++i) {
         if (Command->queues[i].signal)
             gcmkVERIFY_OK(gckOS_DestroySignal(Command->os, Command->queues[i].signal));
@@ -1389,6 +1630,42 @@ gckCOMMAND_Destroy(gckCOMMAND Command)
             Command->queues[i].logical = gcvNULL;
         }
     }
+#else
+    /* Destroy all command buffers. */
+    while (Command->commandBufferList != gcvNULL) {
+        /* Get the head of the list. */
+        gckCOMMAND_BUFFER commandBuffer = Command->commandBufferList;
+
+        commandBuffer->prev->next =
+        Command->commandBufferList = commandBuffer->next;
+        commandBuffer->next->prev = commandBuffer->prev;
+
+        gcmkVERIFY_OK(gckOS_WaitSignal(Command->os, commandBuffer->signal, gcvFALSE, Command->kernel->timeOut));
+
+        gcmkVERIFY_OK(gckOS_DestroySignal(Command->os, commandBuffer->signal));
+
+        if (commandBuffer->logical) {
+            gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(Command->kernel,
+                                                   commandBuffer->videoMem,
+                                                   0, gcvFALSE, gcvFALSE));
+
+            gcmkVERIFY_OK(gckVIDMEM_NODE_Unlock(Command->kernel,
+                                                commandBuffer->videoMem,
+                                                Command->kernel->mmu, gcvNULL));
+
+            gcmkVERIFY_OK(gckVIDMEM_NODE_Dereference(Command->kernel, commandBuffer->videoMem));
+        }
+
+        gcmkVERIFY_OK(gckOS_Free(Command->os, commandBuffer));
+        commandBuffer = gcvNULL;
+    }
+
+    if (Command->mutexList) {
+        /* Delete the command buffer list mutex. */
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Command->os, Command->mutexList));
+        Command->mutexList = gcvNULL;
+    }
+#endif
 
     if (Command->mutexContext) {
         /* Delete the context switching mutex. */
@@ -1500,6 +1777,11 @@ gckCOMMAND_EnterCommit(gckCOMMAND Command, gctBOOL FromPower)
     /* Grab the conmmand queue mutex. */
     gcmkONERROR(gckOS_AcquireMutex(Command->os, Command->mutexQueue, gcvINFINITE));
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+    Command->enterCommitTail = Command->commandBufferTail;
+
+    gcmkONERROR(gckVIDMEM_NODE_Reference(Command->kernel, Command->videoMem));
+#endif
     /* Success. */
     gcmkFOOTER();
     return gcvSTATUS_OK;
@@ -1549,6 +1831,12 @@ gckCOMMAND_ExitCommit(gckCOMMAND Command, gctBOOL FromPower)
     /* Release the power mutex. */
     gcmkONERROR(gckOS_ReleaseMutex(Command->os, Command->mutexQueue));
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+    if (Command->enterCommitTail == Command->commandBufferTail)
+        gcmkONERROR(gckVIDMEM_NODE_Dereference(Command->kernel, Command->videoMem));
+    else
+        gcmkONERROR(gckVIDMEM_NODE_Dereference(Command->kernel, Command->enterCommitTail->videoMem));
+#endif
     if (!FromPower) {
         /* Release the power management semaphore. */
         gcmkONERROR(gckOS_ReleaseSemaphore(Command->os, Command->powerSemaphore));
@@ -2528,14 +2816,6 @@ _CommitWaitLinkOnce(gckCOMMAND Command,
     /* Release the context switching mutex. */
     gcmkONERROR(gckOS_ReleaseMutex(Command->os, Command->mutexContext));
     contextAcquired = gcvFALSE;
-
-    if (status == gcvSTATUS_INTERRUPTED) {
-        gcmkTRACE(gcvLEVEL_INFO, "%s(%d): Intterupted in gckEVENT_Submit",
-                  __FUNCTION__, __LINE__);
-        status = gcvSTATUS_OK;
-    } else {
-        gcmkONERROR(status);
-    }
 
 #ifdef __QNXNTO__
     if (userCommandBufferLogicalMapped) {
@@ -3980,6 +4260,9 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
     subCommandList.count = 0;
     subCommandList.next = gcvNULL;
 #endif
+#if gcdDYNAMIC_COMMAND_QUEUES
+    gckCOMMAND_BUFFER commandBuffer = Command->commandBufferList;
+#endif
 
     gcmkPRINT("**************************\n");
     gcmkPRINT("**** COMMAND BUF DUMP ****\n");
@@ -4035,6 +4318,7 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
 
     gcmkPRINT("Kernel command buffers:");
 
+#if !gcdDYNAMIC_COMMAND_QUEUES
     for (i = 0; i < gcdCOMMAND_QUEUES; i++) {
         entry = Command->queues[i].logical;
         gpuAddress = Command->queues[i].address;
@@ -4048,7 +4332,16 @@ gckCOMMAND_DumpExecutingBuffer(gckCOMMAND Command)
 
         _DumpBuffer(entry, gpuAddress, Command->size);
     }
+#else
+    do {
+        entry = commandBuffer->logical;
+        gpuAddress = commandBuffer->address;
 
+        gcmkPRINT("command buffer %d at 0x%llx size %u", commandBuffer->index, gpuAddress, Command->size);
+        _DumpBuffer(entry, gpuAddress, Command->size);
+        commandBuffer = commandBuffer->next;
+    } while (commandBuffer != Command->commandBufferList);
+#endif
     /* new line. */
     gcmkPRINT(" ");
 

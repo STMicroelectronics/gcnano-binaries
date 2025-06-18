@@ -437,6 +437,12 @@ _QueryProcessPageTable(gctPOINTER Logical, gctPHYS_ADDR_T *Address)
         struct vm_area_struct *vma;
         unsigned long pfn = 0;
         int ret = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+        struct follow_pfnmap_args args = { };
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+        pte_t *ptep;
+        spinlock_t *ptl;
+#endif
 
         down_read(&current_mm_mmap_sem);
         vma = find_vma(current->mm, logical);
@@ -444,11 +450,26 @@ _QueryProcessPageTable(gctPOINTER Logical, gctPHYS_ADDR_T *Address)
             up_read(&current_mm_mmap_sem);
             return gcvSTATUS_NOT_FOUND;
         }
-        up_read(&current_mm_mmap_sem);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+        args.address = logical;
+        args.vma = vma;
+        ret = follow_pfnmap_start(&args);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+        ret = follow_pte(vma, logical, &ptep, &ptl);
+#else
         ret = follow_pfn(vma, logical, &pfn);
+#endif
+        up_read(&current_mm_mmap_sem);
         if (ret < 0) {
             return gcvSTATUS_NOT_FOUND;
         } else {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+            pfn = args.pfn;
+            follow_pfnmap_end(&args);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+            pfn = pte_pfn(ptep_get(ptep));
+            pte_unmap_unlock(ptep, ptl);
+#endif
             *Address = (pfn << PAGE_SHIFT) | offset;
             return gcvSTATUS_OK;
         }
@@ -2080,11 +2101,14 @@ _GetPhysicalAddressProcess(gckOS Os, gctPOINTER Logical,
         }
     }
 
+    gcmkONERROR(status);
+
     gckOS_ReleaseMutex(Os, &Os->mdlMutex);
     acquiredMdlMutex = gcvFALSE;
 
-    gcmkONERROR(status);
     /* Success. */
+    gcmkFOOTER_ARG("*Address=0x%llx", *Address);
+    return gcvSTATUS_OK;
 
 OnError:
     if (acquiredMapsMutex)
@@ -6673,9 +6697,6 @@ OnError:
         dma_fence_put(fence);
 #  endif
 
-    if (fd > 0)
-        put_unused_fd(fd);
-
     *FenceFD = -1;
     return status;
 }
@@ -7082,11 +7103,10 @@ gckOS_MemoryMmap(gckOS Os, gctPHYS_ADDR Physical,
                  gctSIZE_T skipPages, gctSIZE_T numPages, gctPOINTER Vma)
 {
     PLINUX_MDL mdl;
-    PLINUX_MDL_MAP mdlMap;
     gckALLOCATOR allocator;
+    struct vm_area_struct *vma = (struct vm_area_struct *)Vma;
+    gctBOOL cacheable = gcvTRUE;
     gceSTATUS status = gcvSTATUS_OK;
-    gctBOOL cacheable = gcvFALSE;
-    gctBOOL acquiredMutex = gcvFALSE;
 
     if (!Physical)
         gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
@@ -7097,21 +7117,14 @@ gckOS_MemoryMmap(gckOS Os, gctPHYS_ADDR Physical,
     if (!allocator->ops->Mmap)
         gcmkONERROR(gcvSTATUS_NOT_SUPPORTED);
 
-    gcmkONERROR(gckOS_AcquireMutex(Os, &mdl->mapsMutex, gcvINFINITE));
-    acquiredMutex = gcvTRUE;
-
-    mdlMap = FindMdlMap(mdl, _GetProcessID());
-    if (mdlMap)
-        cacheable = mdlMap->cacheable;
-
-    gcmkONERROR(gckOS_ReleaseMutex(Os, &mdl->mapsMutex));
-    acquiredMutex = gcvFALSE;
+    /* According to the mode of vma->vm_page_prot to decide if mmap needs to be cacheable. */
+    if (pgprot_val(vma->vm_page_prot) == pgprot_val(pgprot_noncached(vma->vm_page_prot)) ||
+        pgprot_val(vma->vm_page_prot) == pgprot_val(pgprot_writecombine(vma->vm_page_prot)))
+        cacheable = gcvFALSE;
 
     gcmkONERROR(allocator->ops->Mmap(allocator, mdl, cacheable, skipPages, numPages, Vma));
 
 OnError:
-    if (acquiredMutex)
-        gckOS_ReleaseMutex(Os, &mdl->mapsMutex);
     return status;
 }
 

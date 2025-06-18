@@ -171,6 +171,8 @@ typedef struct _gcsNN_FIXED_FEATURE {
 
     /* for HW9.4 */
     gctUINT  nnLoop1DpNumber;
+    gctUINT  zrlValidZeroNumber;
+    gctUINT  kernelFifoInWidth;
 } gcsNN_FIXED_FEATURE;
 
 /* Features can be customized from outside */
@@ -287,6 +289,7 @@ typedef struct _gcsSystemInfo {
     0, /* contiguousSize     */               \
     0, /* contiguousPhysName */               \
     gcvNULL, /* contiguousLogical  */               \
+    gcvNULL, /* eglDeviceInfo      */               \
     gcvNULL, /* eglDisplayInfo     */               \
     gcvNULL, /* eglSurfaceInfo     */               \
     gcvSURF_A8R8G8B8, /* eglConfigFormat    */               \
@@ -553,6 +556,13 @@ gcoHAL_QuerySRAM(IN gcoHAL Hal,
                  OUT gctPHYS_ADDR_T *GPUPhysAddr,
                  OUT gctUINT32 *GPUPhysName,
                  OUT gctPHYS_ADDR_T *CPUPhysAddr);
+
+gceSTATUS
+gcoHAL_QueryInternalSRAMSizeIndex(
+    IN gcoHAL Hal,
+    IN gctUINT32 CoreStart,
+    IN gctUINT32 CoreCount,
+    OUT gctUINT32 *Size);
 
 #ifdef LINUX
 gctINT32

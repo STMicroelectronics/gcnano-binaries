@@ -1954,6 +1954,14 @@ gckEVENT_Notify(gckEVENT Event, gctUINT32 IDs, gceEVENT_FAULT *Fault)
                 gcmkERR_BREAK(gckVIDMEM_NODE_Unlock(Event->kernel, nodeObject,
                                                     record->mmu, gcvNULL));
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+                if (nodeObject->commandBuffer) {
+                    gcmkVERIFY_OK(gckOS_DestroySignal(Event->command->os, nodeObject->commandBuffer->signal));
+
+                    gcmkONERROR(gckOS_Free(Event->command->os, nodeObject->commandBuffer));
+                }
+#endif
+
                 /* Deref node. */
                 gcmkERR_BREAK(gckVIDMEM_NODE_DereferenceEx(Event->kernel, nodeObject, record->processID));
 

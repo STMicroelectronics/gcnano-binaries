@@ -1130,6 +1130,7 @@ typedef struct _gcsTHREAD_WALKER_INFO {
     gctBOOL     bDual16;
     gctUINT32   coreCount;
     gctUINT32   coreIDs[gcdMAX_3DGPU_COUNT];
+    gctBOOL     binarySave;
 } gcsTHREAD_WALKER_INFO;
 
 #if gcdENABLE_3D && gcdUSE_VX

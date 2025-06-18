@@ -602,6 +602,7 @@ gckKERNEL_Construct(gckOS Os, gceCORE Core,
     /* Verify the arguments. */
     gcmkVERIFY_OBJECT(Os, gcvOBJ_OS);
     gcmkVERIFY_ARGUMENT(Kernel != gcvNULL);
+    gcmkVERIFY_ARGUMENT(Device != gcvNULL);
 
     /* Allocate the gckKERNEL object. */
     gcmkONERROR(gckOS_Allocate(Os, gcmSIZEOF(struct _gckKERNEL), &pointer));
@@ -1010,8 +1011,10 @@ gckKERNEL_Destroy(gckKERNEL Kernel)
             Kernel->mmuDescMutex = gcvNULL;
         }
 
-        if (Kernel->mmuDescMap)
+        if (Kernel->mmuDescMap) {
+            /* Release the mmuDescMap. */
             gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, Kernel->mmuDescMap));
+        }
     }
 
     if (Kernel->sema) {
@@ -1772,6 +1775,10 @@ _AllocateLinearMemory(gckKERNEL Kernel, gctUINT32 ProcessID, gcsHAL_INTERFACE *I
     gcmkONERROR(gckKERNEL_AllocateVideoMemory(Kernel, alignment, type, flag,
                                               &bytes, &pool, &nodeObject));
 
+#if gcdENABLE_DRM_FILE_DB
+    nodeObject->pid = Interface->pid;
+#endif
+
     /* Allocate handle for this video memory. */
     gcmkONERROR(gckVIDMEM_HANDLE_Allocate(Kernel, nodeObject, &handle));
 
@@ -2152,6 +2159,10 @@ _WrapUserMemory(gckKERNEL Kernel, gctUINT32 ProcessID, gcsHAL_INTERFACE *Interfa
                                               &nodeObject,
                                               &Interface->u.WrapUserMemory.bytes));
 
+#if gcdENABLE_DRM_FILE_DB
+    nodeObject->pid = ProcessID;
+#endif
+
     /* Create handle representation for userspace. */
     gcmkONERROR(gckVIDMEM_HANDLE_Allocate(Kernel, nodeObject, &handle));
 
@@ -2516,15 +2527,15 @@ gckKERNEL_CacheOperation(gckKERNEL Kernel, gctUINT32 ProcessID, gctUINT32 Node,
         /* Invalidate the cache. */
         status = gckOS_CacheInvalidate(Kernel->os, ProcessID, memHandle, offset, Logical, Bytes);
         break;
-
     case gcvCACHE_MEMORY_BARRIER:
         status = gckOS_MemoryBarrier(Kernel->os, Logical);
         break;
-
     default:
-        gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+        status = gcvSTATUS_INVALID_ARGUMENT;
         break;
     }
+
+    gcmkONERROR(status);
 
 #if gcdENABLE_VIDEO_MEMORY_MIRROR
 OnSync:
@@ -2542,9 +2553,11 @@ OnSync:
             dir = gcvSYNC_MEMORY_DIRECTION_LOCAL_TO_SYSTEM;
             break;
         default:
-            gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+            status = gcvSTATUS_INVALID_ARGUMENT;
             break;
         }
+
+        gcmkONERROR(status);
 
         if (dir != gcvSYNC_MEMORY_DIRECTION_NONE)
             gcmkONERROR(gckKERNEL_SyncVideoMemoryMirror(Kernel, nodeObject, offset, Bytes, dir));
@@ -2982,8 +2995,13 @@ gckKERNEL_Dispatch(gckKERNEL Kernel, gckDEVICE Device, gcsHAL_INTERFACE *Interfa
     gcmkVERIFY_OK(gckOS_GetTime(&timerStart));
 #endif
 
-    /* Get the current process ID. */
-    gcmkONERROR(gckOS_GetProcessID(&processID));
+#if gcdENABLE_DRM_FILE_DB
+    /* Get the appointed process ID. */
+    if (Interface->pid)
+        processID = Interface->pid;
+    else
+#endif
+        gcmkONERROR(gckOS_GetProcessID(&processID));
 
     /* Dispatch on command. */
     switch (Interface->command) {
@@ -3277,8 +3295,10 @@ gckKERNEL_Dispatch(gckKERNEL Kernel, gckDEVICE Device, gcsHAL_INTERFACE *Interfa
 
         default:
             /* Invalid user signal command. */
-            gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+            status = gcvSTATUS_INVALID_ARGUMENT;
+            break;
         }
+        gcmkONERROR(status);
         break;
 #endif
 
@@ -3767,9 +3787,11 @@ gckKERNEL_Dispatch(gckKERNEL Kernel, gckDEVICE Device, gcsHAL_INTERFACE *Interfa
             break;
 
         default:
-            gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+            status = gcvSTATUS_INVALID_ARGUMENT;
             break;
         }
+
+        gcmkONERROR(status);
     } break;
 
 #ifdef __linux__
@@ -3882,8 +3904,11 @@ gckKERNEL_Dispatch(gckKERNEL Kernel, gckDEVICE Device, gcsHAL_INTERFACE *Interfa
 
     default:
         /* Invalid command. */
-        gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+        status = gcvSTATUS_INVALID_ARGUMENT;
+        break;
     }
+
+    gcmkONERROR(status);
 
 #if gcdENABLE_PERF_DISPATCH
     gcmkVERIFY_OK(gckOS_GetTime(&timerEnd));
@@ -4041,6 +4066,9 @@ gckKERNEL_AttachProcessEx(gckKERNEL Kernel, gctBOOL Attach, gctUINT32 PID)
         eventAttr.fromPower = gcvFALSE;
         eventAttr.broadcast = gcvTRUE;
 
+#if gcdDYNAMIC_COMMAND_QUEUES
+        gcmkONERROR(gckCOMMAND_FreeProcessQueue(Kernel->command, PID));
+#endif
         if (Kernel->dbCreated) {
             /* Clean up the process database. */
             gcmkONERROR(gckKERNEL_DestroyProcessDB(Kernel, PID));
@@ -5606,7 +5634,10 @@ gckDEVICE_SetTimeOut(gckDEVICE Device, gcsHAL_INTERFACE_PTR Interface)
     for (i = 0; i < Device->coreNum; i++) {
         kernel = info[i].kernel;
 
-        /* Update the delay of the current monitorTimer. */
+        /* Cancel the current monitorTimer. */
+        gcmkVERIFY_OK(gckOS_StopTimer(kernel->os, kernel->monitorTimer));
+
+        /* Start a new monitorTimer with updated timeout. */
         gcmkVERIFY_OK(gckOS_StartTimer(kernel->os, kernel->monitorTimer,
                                        Interface->u.SetTimeOut.timeOut / 2));
 
@@ -5689,12 +5720,15 @@ gckDEVICE_ProcessFence(gckDEVICE Device, gcsHAL_INTERFACE_PTR Interface)
     return status;
 
 OnError:
-    if (acquired)
-        gcmkVERIFY_OK(gckOS_ReleaseMutex(Device->os,
-                      Device->fenceListMutex));
+    if (acquired) {
+        /* Release the fence list mutex. */
+        gcmkVERIFY_OK(gckOS_ReleaseMutex(Device->os, Device->fenceListMutex));
+    }
 
-    if (pointer)
+    if (pointer) {
+        /* Free the pointer. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Device->os, pointer));
+    }
 
     gcmkFOOTER();
 #endif
@@ -5851,7 +5885,8 @@ gckDEVICE_Profiler_Dispatch(gckDEVICE Device,
 
     default:
         /* Invalid command. */
-        gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+        status = gcvSTATUS_INVALID_ARGUMENT;
+        break;
     }
 
 OnError:

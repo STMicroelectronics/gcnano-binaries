@@ -2891,7 +2891,7 @@ _DestroyContext(gckCONTEXT Context)
                 gcmkVERIFY_OK(gckVIDMEM_NODE_UnlockCPU(kernel, buffer->videoMem,
                                                        0, gcvFALSE, gcvFALSE));
 
-                gcmkONERROR(gckKERNEL_GetCurrentMMU(kernel, gcvTRUE, 0, &mmu));
+                gcmkONERROR(gckKERNEL_GetCurrentMMU(kernel, gcvTRUE, Context->processID, &mmu));
 
                 /* Synchronized unlock. */
                 gcmkVERIFY_OK(gckVIDMEM_NODE_Unlock(kernel, buffer->videoMem, mmu, gcvNULL));
@@ -3214,6 +3214,8 @@ gckCONTEXT_Construct(gckOS Os, gckHARDWARE Hardware,
     context->prevMapEntryIndex = gcvNULL;
     context->prevDeltaPtr = gcvNULL;
 # endif
+
+    context->processID = ProcessID;
 
     /* Make all created contexts equal. */
     {

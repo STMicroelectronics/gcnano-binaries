@@ -99,8 +99,14 @@
 #define MDUSEL_CHIPINFO_ProbeState_CID                          0x0004
 #define MDUSEL_CHIPINFO_ProbeState_ShClk                        0x0005
 #define MDUSEL_CHIPINFO_ProbeState_TcClk                        0x0006
+#define MDUSEL_CHIPINFO_ProbeState_CcAxiBW                      0x0007
+#define MDUSEL_CHIPINFO_ProbeState_TcAxiBW                      0x0008
+#define MDUSEL_CHIPINFO_ProbeState_ShCoreNum                    0x0009
+#define MDUSEL_CHIPINFO_ProbeState_NNCoreNum                    0x0010
+#define MDUSEL_CHIPINFO_ProbeState_NNMadPerCore                 0x0011
+#define MDUSEL_CHIPINFO_ProbeState_NNDpNum                      0x0012
 
-#define MDUSEL_CHIPINFO_NUM                                     6
+#define MDUSEL_CHIPINFO_NUM                                     12
 
 DefineModule(FE, 0x00000);
 DefineProbe(0x1);

@@ -185,6 +185,8 @@ struct _gckCONTEXT {
     gctUINT32                    *prevMapEntryID;
     gctUINT32                    *prevMapEntryIndex;
 #endif
+
+    gctUINT32                     processID;
 };
 
 #ifdef __cplusplus

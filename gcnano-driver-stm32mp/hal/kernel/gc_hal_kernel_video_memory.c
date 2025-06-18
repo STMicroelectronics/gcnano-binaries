@@ -1785,7 +1785,7 @@ _AllocateVirtualChunk(gckKERNEL Kernel,
 
     gcmkVERIFY_ARGUMENT(Node != gcvNULL);
     gcmkVERIFY_ARGUMENT(VidMemBlock != gcvNULL);
-    gcmkVERIFY_ARGUMENT(Bytes > 0);
+    gcmkVERIFY_ARGUMENT(Bytes != gcvNULL && *Bytes > 0);
     gcmkVERIFY_ARGUMENT(Type < gcvVIDMEM_TYPE_COUNT);
 
     gcmkONERROR(gckOS_AcquireMutex(Kernel->os, VidMemBlock->mutex, gcvINFINITE));
@@ -2834,7 +2834,12 @@ gckVIDMEM_HANDLE_Allocate(gckKERNEL Kernel, gckVIDMEM_NODE Node, gctUINT32 *Hand
     /* Set default reference count to 1. */
     gckOS_AtomSet(os, handleObject->reference, 1);
 
-    gcmkVERIFY_OK(gckOS_GetProcessID(&processID));
+#if gcdENABLE_DRM_FILE_DB
+    if (Node->pid)
+        processID = Node->pid;
+    else
+#endif
+        gcmkVERIFY_OK(gckOS_GetProcessID(&processID));
 
     gcmkONERROR(gckKERNEL_FindHandleDatabase(Kernel, processID,
                                             &handleDatabase, &mutex));
@@ -3407,6 +3412,7 @@ gckVIDMEM_NODE_DereferenceEx(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject, gctUIN
 
     gcmkHEADER_ARG("Kernel=%p NodeObject=%p", Kernel, NodeObject);
     gcmkVERIFY_ARGUMENT(NodeObject != gcvNULL);
+    gcmkVERIFY_ARGUMENT(NodeObject->reference != gcvNULL);
 
     gcmkONERROR(gckOS_AcquireMutex(Kernel->os, mutex, gcvINFINITE));
     dbMutexAcquired = gcvTRUE;
@@ -4392,6 +4398,8 @@ static void _dmabuf_release(struct dma_buf *dmabuf)
         nodeObject->metadata.ts_dma_buf = NULL;
     }
 
+    nodeObject->dmabuf = gcvNULL;
+
     gcmkVERIFY_OK(gckVIDMEM_NODE_Dereference(nodeObject->kernel, nodeObject));
 }
 
@@ -4725,11 +4733,15 @@ gckVIDMEM_NODE_GetFd(gckKERNEL Kernel, gckVIDMEM_NODE NodeObject, gctBOOL Export
     return gcvSTATUS_OK;
 
 OnError:
-    if (referenced)
+    if (referenced) {
+        /* Dereference the NodeObject. */
         gcmkVERIFY_OK(gckVIDMEM_NODE_Dereference(Kernel, NodeObject));
+    }
 
-    if (fdPrivate)
+    if (fdPrivate) {
+        /* Release the fdPrivate. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, fdPrivate));
+    }
 
     gcmkFOOTER();
     return status;

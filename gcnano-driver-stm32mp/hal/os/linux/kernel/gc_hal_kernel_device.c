@@ -359,11 +359,11 @@ gc_mmuinfo_show(void)
 
     gcmkPRINT("  BASE ADDRESS:\n");
     for (i = 0; i < gcdSYSTEM_RESERVE_COUNT; i++)
-        gcmkPRINT("    contiguousBaseAddresses[%d]: 0x%010X\n", i, mmu->contiguousBaseAddresses[i]);
+        gcmkPRINT("    contiguousBaseAddresses[%d]: 0x%010llX\n", i, mmu->contiguousBaseAddresses[i]);
 
-    gcmkPRINT("    externalBaseAddress:        0x%010X\n", mmu->externalBaseAddress);
-    gcmkPRINT("    internalBaseAddress:        0x%010X\n", mmu->internalBaseAddress);
-    gcmkPRINT("    exclusiveBaseAddress:       0x%010X\n", mmu->exclusiveBaseAddress);
+    gcmkPRINT("    externalBaseAddress:        0x%010llX\n", mmu->externalBaseAddress);
+    gcmkPRINT("    internalBaseAddress:        0x%010llX\n", mmu->internalBaseAddress);
+    gcmkPRINT("    exclusiveBaseAddress:       0x%010llX\n", mmu->exclusiveBaseAddress);
 
     /* get extAddress */
     extAddr = (gctUINT32)(mmu->mtlbPhysical >> 32);
@@ -447,148 +447,6 @@ gc_mmuinfo_show(void)
 OnError:
     gcmkPRINT("ERROR...\n");
     return status;
-}
-
-static int
-gc_load_show(void *m, void *data)
-{
-    int len = 0;
-    gctUINT32 i, j;
-    gceSTATUS status = gcvSTATUS_OK;
-    gckGALDEVICE gal_device = galDevice;
-    gckDEVICE device = gcvNULL;
-    gceCHIPPOWERSTATE statesStored = gcvPOWER_INVALID;
-    gceCHIPPOWERSTATE state = gcvPOWER_INVALID;
-    gctUINT32 load[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {0}, {0} };
-    gctUINT32 hi_total_cycle_count[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {0}, {0} };
-    gctUINT32 hi_total_idle_cycle_count[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {0}, {0} };
-
-    gctBOOL powerManagement[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {gcvFALSE}, {gcvFALSE} };
-
-#ifdef CONFIG_DEBUG_FS
-    void *ptr = m;
-#else
-    char *ptr = (char *)m;
-#endif
-
-    if (!gal_device)
-        return -ENXIO;
-
-    for (j = 0; j < gcdDEVICE_COUNT; j++) {
-        if (gal_device->devices[j])
-            device = gal_device->devices[j];
-        else
-            continue;
-
-        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
-            if (device->kernels[i]) {
-                if (device->kernels[i]->hardware) {
-                    gckHARDWARE Hardware = device->kernels[i]->hardware;
-
-                    powerManagement[j][i] = Hardware->options.powerManagement;
-
-                    if (powerManagement[j][i])
-                        gcmkONERROR(gckHARDWARE_EnablePowerManagement(Hardware, gcvFALSE));
-
-                    gcmkONERROR(gckHARDWARE_QueryPowerState(Hardware, &statesStored));
-
-                    gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, gcvPOWER_ON_AUTO));
-
-                    gcmkONERROR(gckHARDWARE_SetGpuProfiler(Hardware, gcvTRUE));
-
-                    Hardware->waitCount = 200 * 100;
-                }
-            }
-        }
-    }
-
-    for (j = 0; j < gcdDEVICE_COUNT; j++) {
-        if (gal_device->devices[j])
-            device = gal_device->devices[j];
-        else
-            continue;
-
-        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
-            if (device->kernels[i]) {
-                if (device->kernels[i]->hardware)
-                    gcmkONERROR(gckHARDWARE_CleanCycleCount(device->kernels[i]->hardware));
-            }
-        }
-    }
-
-    gckOS_Delay(gcvNULL, 1);
-
-    for (j = 0; j < gcdDEVICE_COUNT; j++) {
-        if (gal_device->devices[j])
-            device = gal_device->devices[j];
-        else
-            continue;
-
-        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
-            if (device->kernels[i]) {
-                if (device->kernels[i]->hardware)
-                    gcmkONERROR(gckHARDWARE_QueryCycleCount(device->kernels[i]->hardware,
-                                                            &hi_total_cycle_count[j][i],
-                                                            &hi_total_idle_cycle_count[j][i]));
-            }
-        }
-    }
-
-    for (j = 0; j < gcdDEVICE_COUNT; j++) {
-        if (gal_device->devices[j]) {
-            len += fs_printf(ptr + len, "device        : %d\n", j);
-            device = gal_device->devices[j];
-        } else
-            continue;
-
-        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
-            if (device->kernels[i]) {
-                if (device->kernels[i]->hardware) {
-                    gckHARDWARE Hardware = device->kernels[i]->hardware;
-
-                    switch (statesStored) {
-                    case gcvPOWER_OFF:
-                        state = gcvPOWER_OFF_BROADCAST;
-                        break;
-                    case gcvPOWER_IDLE:
-                        state = gcvPOWER_IDLE_BROADCAST;
-                        break;
-                    case gcvPOWER_SUSPEND:
-                        state = gcvPOWER_SUSPEND_BROADCAST;
-                        break;
-                    case gcvPOWER_ON:
-                        state = gcvPOWER_ON_AUTO;
-                        break;
-                    default:
-                        state = statesStored;
-                        break;
-                    }
-
-                    Hardware->waitCount = 200;
-
-                    gcmkONERROR(gckHARDWARE_SetGpuProfiler(Hardware, gcvFALSE));
-
-                    if (powerManagement[j][i])
-                        gcmkONERROR(gckHARDWARE_EnablePowerManagement(Hardware, gcvTRUE));
-
-                    gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, state));
-
-                    if (hi_total_cycle_count[j][i] == 0) {
-                        len += fs_printf(ptr, "The current HW doesn't support use AHB register to read cycle counter.\n");
-                        goto OnError;
-                    } else
-                        load[j][i] = div_u64((gctUINT64)(hi_total_cycle_count[j][i] - hi_total_idle_cycle_count[j][i]) * 100, hi_total_cycle_count[j][i]);
-
-                    len += fs_printf(ptr + len, "    core      : %d\n", i);
-                    len += fs_printf(ptr + len, "    load      : %d%%\n", load[j][i]);
-                    len += fs_printf(ptr + len, "\n");
-                }
-            }
-        }
-    }
-
-OnError:
-    return len;
 }
 
 static const char *vidmemTypeStr[gcvVIDMEM_TYPE_COUNT] = {
@@ -963,8 +821,157 @@ gc_idle_show(void *m, void *data)
     return len;
 }
 
+#define LOAD_FSHIFT 100
 static gctUINT dumpDevice = 0;
 static gctUINT dumpCore   = 0;
+static gctUINT delayMs    = 100;
+
+static int
+gc_load_show(void *m, void *data)
+{
+    int len = 0;
+    gctUINT32 i, j;
+    gceSTATUS status = gcvSTATUS_OK;
+    gckGALDEVICE gal_device = galDevice;
+    gckDEVICE device = gcvNULL;
+    gceCHIPPOWERSTATE statesStored = gcvPOWER_INVALID;
+    gceCHIPPOWERSTATE state = gcvPOWER_INVALID;
+    gctUINT32 load_fixed[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {0}, {0} };
+    gctUINT32 hi_total_cycle_count[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {0}, {0} };
+    gctUINT32 hi_total_idle_cycle_count[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {0}, {0} };
+
+    gctBOOL powerManagement[gcdDEVICE_COUNT][gcvCORE_3D_MAX + 1] = { {gcvFALSE}, {gcvFALSE} };
+
+#ifdef CONFIG_DEBUG_FS
+    void *ptr = m;
+#else
+    char *ptr = (char *)m;
+#endif
+
+    if (!gal_device)
+        return -ENXIO;
+
+    for (j = 0; j < gcdDEVICE_COUNT; j++) {
+        if (gal_device->devices[j])
+            device = gal_device->devices[j];
+        else
+            continue;
+
+        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
+            if (device->kernels[i]) {
+                if (device->kernels[i]->hardware) {
+                    gckHARDWARE Hardware = device->kernels[i]->hardware;
+
+                    powerManagement[j][i] = Hardware->options.powerManagement;
+
+                    if (powerManagement[j][i])
+                        gcmkONERROR(gckHARDWARE_EnablePowerManagement(Hardware, gcvFALSE));
+
+                    gcmkONERROR(gckHARDWARE_QueryPowerState(Hardware, &statesStored));
+
+                    gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, gcvPOWER_ON_AUTO));
+
+                    gcmkONERROR(gckHARDWARE_SetGpuProfiler(Hardware, gcvTRUE));
+
+                    Hardware->waitCount = 200 * 100;
+                }
+            }
+        }
+    }
+
+    for (j = 0; j < gcdDEVICE_COUNT; j++) {
+        if (gal_device->devices[j])
+            device = gal_device->devices[j];
+        else
+            continue;
+
+        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
+            if (device->kernels[i]) {
+                if (device->kernels[i]->hardware)
+                    gcmkONERROR(gckHARDWARE_CleanCycleCount(device->kernels[i]->hardware));
+            }
+        }
+    }
+
+    gckOS_Delay(gcvNULL, delayMs);
+
+    for (j = 0; j < gcdDEVICE_COUNT; j++) {
+        if (gal_device->devices[j])
+            device = gal_device->devices[j];
+        else
+            continue;
+
+        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
+            if (device->kernels[i]) {
+                if (device->kernels[i]->hardware)
+                    gcmkONERROR(gckHARDWARE_QueryCycleCount(device->kernels[i]->hardware,
+                                                            &hi_total_cycle_count[j][i],
+                                                            &hi_total_idle_cycle_count[j][i]));
+            }
+        }
+    }
+
+    len += fs_printf(ptr + len, "The previous %ums HW load\n", delayMs);
+
+    for (j = 0; j < gcdDEVICE_COUNT; j++) {
+        if (gal_device->devices[j]) {
+            len += fs_printf(ptr + len, "device        : %d\n", j);
+            device = gal_device->devices[j];
+        } else
+            continue;
+
+        for (i = 0; i <= gcvCORE_3D_MAX; i++) {
+            if (device->kernels[i]) {
+                if (device->kernels[i]->hardware) {
+                    gckHARDWARE Hardware = device->kernels[i]->hardware;
+
+                    switch (statesStored) {
+                    case gcvPOWER_OFF:
+                        state = gcvPOWER_OFF_BROADCAST;
+                        break;
+                    case gcvPOWER_IDLE:
+                        state = gcvPOWER_IDLE_BROADCAST;
+                        break;
+                    case gcvPOWER_SUSPEND:
+                        state = gcvPOWER_SUSPEND_BROADCAST;
+                        break;
+                    case gcvPOWER_ON:
+                        state = gcvPOWER_ON_AUTO;
+                        break;
+                    default:
+                        state = statesStored;
+                        break;
+                    }
+
+                    Hardware->waitCount = 200;
+
+                    gcmkONERROR(gckHARDWARE_SetGpuProfiler(Hardware, gcvFALSE));
+
+                    if (powerManagement[j][i])
+                        gcmkONERROR(gckHARDWARE_EnablePowerManagement(Hardware, gcvTRUE));
+
+                    gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, state));
+
+                    if (hi_total_cycle_count[j][i] == 0) {
+                        len += fs_printf(ptr, "The current HW doesn't support use AHB register to read cycle counter.\n");
+                        goto OnError;
+                    } else {
+                        load_fixed[j][i] = div_u64((gctUINT64)(hi_total_cycle_count[j][i] - hi_total_idle_cycle_count[j][i]) * 100 * LOAD_FSHIFT,
+                                          hi_total_cycle_count[j][i]);
+
+                    }
+
+                    len += fs_printf(ptr + len, "    core      : %d\n", i);
+                    len += fs_printf(ptr + len, "    load      : %d.%d%%\n", load_fixed[j][i] / LOAD_FSHIFT, load_fixed[j][i] % LOAD_FSHIFT);
+                    len += fs_printf(ptr + len, "\n");
+                }
+            }
+        }
+    }
+
+OnError:
+    return len;
+}
 
 static int
 gc_dump_trigger_show(void *m, void *data)
@@ -1041,6 +1048,7 @@ OnError:
 
 static int dumpProcess;
 
+#ifdef CONFIG_DEBUG_FS
 static int
 _ShowVideoMemoryOldFormat(void *File, gcsDATABASE_PTR Database, gctBOOL All)
 {
@@ -1183,6 +1191,7 @@ OnError:
         return -EINVAL;
     return status;
 }
+#endif
 
 static int
 gc_vidmem_show(void *m, void *unused, gctBOOL all)
@@ -1400,6 +1409,12 @@ gc_switch_core_count_write(const char __user *buf, size_t count, void *data)
     return ret;
 }
 # endif
+
+static int
+gc_load_write(const char __user *buf, size_t count, void *data)
+{
+    return strtoint_from_user(buf, count, &delayMs);
+}
 #endif
 
 static int
@@ -1708,13 +1723,11 @@ gc_switch_core_count_debugfs(struct seq_file *m, void *data)
 }
 # endif
 
-#if VIVANTE_PROFILER
 static int
 gc_load_show_debugfs(struct seq_file *m, void *data)
 {
     return gc_load_show((void *)m, data);
 }
-# endif
 
 static gcsINFO InfoList[] = {
     { "info", gc_info_show_debugfs },
@@ -1734,9 +1747,7 @@ static gcsINFO InfoList[] = {
 #if gcdENABLE_MP_SWITCH
     { "core_count", gc_switch_core_count_debugfs, gc_switch_core_count_write },
 # endif
-#if VIVANTE_PROFILER
-    { "load", gc_load_show_debugfs },
-# endif
+    { "load", gc_load_show_debugfs, gc_load_write },
 };
 
 #else
@@ -1801,12 +1812,11 @@ load_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     return gc_load_show((void *)buf, NULL);
 }
-DEVICE_ATTR_RO(load);
 
 static ssize_t
 vidmem_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    return gc_vidmem_old_show((void *)buf, NULL, gcvFALSE);
+    return gc_vidmem_show((void *)buf, NULL, gcvFALSE);
 }
 
 static ssize_t
@@ -1876,6 +1886,15 @@ poweroff_timeout_store(struct device *dev, struct device_attribute *attr, const 
 }
 DEVICE_ATTR_RW(poweroff_timeout);
 
+static ssize_t
+load_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    if (kstrtoint(buf, 0, &delayMs))
+        return gcvSTATUS_INVALID_DATA;
+    return count;
+}
+DEVICE_ATTR_RW(load);
+
 static struct attribute *Info_attrs[] = {
     &dev_attr_info.attr,
     &dev_attr_clients.attr,
@@ -1890,6 +1909,7 @@ static struct attribute *Info_attrs[] = {
     &dev_attr_dump_trigger.attr,
     &dev_attr_clk.attr,
     &dev_attr_poweroff_timeout.attr,
+    &dev_attr_load.attr,
     NULL,
 };
 ATTRIBUTE_GROUPS(Info);

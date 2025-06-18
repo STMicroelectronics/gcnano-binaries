@@ -482,6 +482,13 @@ _GetPageTablePool(gckOS Os)
 #endif
     }
 
+#if gcdENABLE_40BIT_VA
+    if (pool == gcvPOOL_VIRTUAL) {
+        pool = gcvPOOL_DEFAULT;
+        gcmkPRINT("40BIT_VA driver could not allocate page tabel in VIRTUAL, try in DEFAULT");
+    }
+#endif
+
     return pool;
 }
 
@@ -773,8 +780,10 @@ gckMMU_FillFlatMappingWithPage16M(gckMMU Mmu, gctUINT64 PhysBase, gctSIZE_T flat
             stlbLogical = (gctUINT32_PTR)((gctUINT8_PTR)curStlbChunk->logical +
                                           (stlbOffset * gcdMMU_STLB_16M_SIZE));
 
-            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK))
+            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK)) {
+                /* Check the mtlb's contents. */
                 gcmkASSERT(0);
+            }
         }
 
 #if gcdDUMP_IN_KERNEL
@@ -1177,8 +1186,10 @@ gckMMU_FillFlatMappingWithPage1M(gckMMU Mmu, gctUINT64 PhysBase, gctSIZE_T flatS
             stlbLogical = (gctUINT32_PTR)((gctUINT8_PTR)curStlbChunk->logical +
                                           (stlbOffset * gcdMMU_STLB_1M_SIZE));
 
-            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK))
+            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK)) {
+                /* Check the mtlb's contents. */
                 gcmkASSERT(0);
+            }
         }
 
 #if gcdDUMP_IN_KERNEL
@@ -1488,8 +1499,10 @@ gckMMU_FillFlatMappingWithPage64K(gckMMU Mmu, gctUINT64 PhysBase, gctSIZE_T flat
             stlbLogical = (gctUINT32_PTR)((gctUINT8_PTR)curStlbChunk->logical +
                                           (stlbOffset * gcdMMU_STLB_64K_SIZE));
 
-            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK))
+            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK)) {
+                /* Check the mtlb's contents. */
                 gcmkASSERT(0);
+            }
         }
 
 #if gcdDUMP_IN_KERNEL
@@ -1801,8 +1814,10 @@ gckMMU_FillFlatMappingWithPage4K(gckMMU Mmu, gctUINT64 PhysBase, gctSIZE_T flatS
             stlbLogical = (gctUINT32_PTR)((gctUINT8_PTR)curStlbChunk->logical +
                                           (stlbOffset * gcdMMU_STLB_4K_SIZE));
 
-            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK))
+            if (stlbPhyBase != (mtlbEntry & gcdMMU_MTLB_ENTRY_STLB_MASK)) {
+                /* Check the mtlb's contents. */
                 gcmkASSERT(0);
+            }
         }
 
 #if gcdDUMP_IN_KERNEL
@@ -4293,22 +4308,30 @@ gckMMU_DestroyMmuCopy(gckMMU Mmu)
         return gcvSTATUS_INVALID_ARGUMENT;
 
 #if gcdENABLE_40BIT_VA
-    if (Mmu->dynamicLowArea4K.stlbLogical)
+    if (Mmu->dynamicLowArea4K.stlbLogical) {
+        /* Release the dynamicLowArea4K's stlb. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Mmu->os, Mmu->dynamicLowArea4K.stlbLogical));
+    }
 
 #if gcdENABLE_GPU_1M_PAGE
-    if (Mmu->dynamicLowArea1M.stlbLogical)
+    if (Mmu->dynamicLowArea1M.stlbLogical) {
+        /* Release the dynamicLowArea1M's stlb. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Mmu->os, Mmu->dynamicLowArea1M.stlbLogical));
+    }
 #endif
 #endif
 
 #if gcdENABLE_GPU_1M_PAGE
-    if (Mmu->dynamicArea1M.stlbLogical)
+    if (Mmu->dynamicArea1M.stlbLogical) {
+        /* Release the dynamicArea1M's stlb. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Mmu->os, Mmu->dynamicArea1M.stlbLogical));
+    }
 #endif
 
-    if (Mmu->dynamicArea4K.stlbLogical)
+    if (Mmu->dynamicArea4K.stlbLogical) {
+         /* Release the dynamicArea4K's stlb. */
         gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Mmu->os, Mmu->dynamicArea4K.stlbLogical));
+    }
 
     gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Mmu->os, Mmu));
 
@@ -4363,7 +4386,14 @@ gckMMU_ConstructMmuCopy(gckKERNEL Kernel, gckMMU *MmuCopy)
     if (MmuCopy)
         *MmuCopy = mmuCopy;
 
+    return gcvSTATUS_OK;
+
 OnError:
+    if (pointer) {
+        /* Free the pointer. */
+        gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, pointer));
+    }
+
     return status;
 }
 
@@ -4578,8 +4608,10 @@ gckMMU_ConstructProcessMMU(gckKERNEL Kernel, gctUINT32 ProcessID, gckMMU *Mmu)
     return gcvSTATUS_OK;
 
 OnError:
-    if (mmu)
+    if (mmu) {
+        /* Destroy the mmu of process. */
         gcmkVERIFY_OK(gckMMU_DestroyProcessMMU(mmu));
+    }
 
     gcmkFOOTER();
     return status;

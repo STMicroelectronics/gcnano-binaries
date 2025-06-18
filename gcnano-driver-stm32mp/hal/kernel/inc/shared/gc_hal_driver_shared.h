@@ -1265,6 +1265,9 @@ typedef struct _gcsHAL_INTERFACE {
     /* API type. -- Needed for Windows WDDM device kernel mode thunks to set ClientHint when a context is created. */
     gceAPI                      api;
 
+#if gcdENABLE_DRM_FILE_DB
+    gctUINT32                   pid;
+#endif
 } gcsHAL_INTERFACE;
 
 #if VIVANTE_PROFILER

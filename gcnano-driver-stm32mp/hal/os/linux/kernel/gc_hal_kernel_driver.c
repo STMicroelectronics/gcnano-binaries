@@ -441,6 +441,9 @@ static int drv_open(struct inode *inode, struct file *filp)
     gctUINT i, dev_index;
     gctUINT attached = 0;
     gckDEVICE device = gcvNULL;
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
+    gctUINT index;
+#endif
 
     gcmkHEADER_ARG("inode=%p filp=%p", inode, filp);
 
@@ -463,20 +466,26 @@ static int drv_open(struct inode *inode, struct file *filp)
     data->device   = galDevice;
     data->pidOpen  = _GetProcessID();
 
-    device = galDevice->devices[dev_index];
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
+    for (dev_index = 0; dev_index < galDevice->args.devCount; dev_index++) {
+#endif
+        device = galDevice->devices[dev_index];
 
-    /* Attached the process. */
-    for (i = 0; i < gcvCORE_COUNT; i++) {
-        if (device->kernels[i]) {
-            status = gckKERNEL_AttachProcess(device->kernels[i], gcvTRUE);
+        /* Attached the process. */
+        for (i = 0; i < gcvCORE_COUNT; i++) {
+            if (device && device->kernels[i]) {
+                status = gckKERNEL_AttachProcess(device->kernels[i], gcvTRUE);
 
-            if (gcmIS_ERROR(status))
-                goto OnError;
+                if (gcmIS_ERROR(status))
+                    goto OnError;
 
-            attached = i;
+                attached = i;
+            }
         }
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
+        index = dev_index;
     }
-
+#endif
     filp->private_data = data;
 
     /* Success. */
@@ -488,7 +497,16 @@ OnError:
         if (device && device->kernels[i])
             gcmkVERIFY_OK(gckKERNEL_AttachProcess(device->kernels[i], gcvFALSE));
     }
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
+    for (dev_index = 0; dev_index < index; dev_index++) {
+        device = galDevice->devices[dev_index];
 
+        for (i = 0; i < gcvCORE_COUNT; i++) {
+            if (device && device->kernels[i])
+                gcmkVERIFY_OK(gckKERNEL_AttachProcess(device->kernels[i], gcvFALSE));
+        }
+    }
+#endif
     kfree(data);
 
     gcmkFOOTER_ARG("status=%d", status);
@@ -541,18 +559,21 @@ static int drv_release(struct inode *inode, struct file *filp)
         gcmkONERROR(gckOS_ReleaseMutex(device->os, device->commitMutex));
         data->isLocked = gcvFALSE;
     }
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
+    for (dev_index = 0; dev_index < gal_device->args.devCount; dev_index++) {
+#endif
+        device = gal_device->devices[dev_index];
 
-    /* A process gets detached. */
-    device = gal_device->devices[dev_index];
-
-    /* A process gets detached. */
-    for (i = 0; i < gcvCORE_COUNT; i++) {
-        if (device && device->kernels[i]) {
-            gcmkVERIFY_OK(gckKERNEL_AttachProcessEx(device->kernels[i],
-                                                    gcvFALSE, data->pidOpen));
+        /* A process gets detached. */
+        for (i = 0; i < gcvCORE_COUNT; i++) {
+            if (device && device->kernels[i]) {
+                gcmkVERIFY_OK(gckKERNEL_AttachProcessEx(device->kernels[i],
+                                                        gcvFALSE, data->pidOpen));
+            }
         }
+#if gcdENABLE_MULTI_DEVICE_MANAGEMENT
     }
-
+#endif
     kfree(data);
     filp->private_data = NULL;
 
@@ -679,6 +700,11 @@ static long drv_ioctl(struct file *filp, unsigned int ioctlCode, unsigned long a
 #if gcdENABLE_MULTI_DEVICE_MANAGEMENT
             if (iface.devIndex >= gcdDEVICE_COUNT)
                 gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+#endif
+
+#if gcdENABLE_DRM_FILE_DB
+            /* Initialize the iface.pid. */
+            iface.pid = 0;
 #endif
 
             device = gal_device->devices[dev_index];
@@ -812,8 +838,6 @@ gceSTATUS viv_misc_device_node_create(uint32_t dev_index)
     gctINT32 ret;
 
     if (!dev) {
-        ret = -ENOMEM;
-
         gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
                        "%s(%d): misc_register fails.\n",
                         __func__, __LINE__);
@@ -829,8 +853,6 @@ gceSTATUS viv_misc_device_node_create(uint32_t dev_index)
         dev->name = kasprintf(GFP_KERNEL, "galcore");
 
     if (!dev->name) {
-        ret = -ENOMEM;
-
         gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_DRIVER,
                        "%s(%d): misc_register fails.\n",
                         __func__, __LINE__);
@@ -1094,10 +1116,14 @@ static int __devinit viv_dev_probe(struct platform_device *pdev)
         }
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+    dma_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
+#else
     ret = dma_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
 
     if (unlikely(ret != 0))
         gcmkPRINT("[galcore warning]: dma_set_max_seg_size failed!");
+#endif
 
 #if gcdCAPTURE_ONLY_MODE
     contiguousBaseCap = platform->params.contiguousBases[0];
@@ -1196,7 +1222,9 @@ static int __devinit viv_dev_probe(struct platform_device *pdev)
     return ret;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+static void viv_dev_remove(struct platform_device *pdev)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
 static int viv_dev_remove(struct platform_device *pdev)
 #else
 static int __devexit viv_dev_remove(struct platform_device *pdev)
@@ -1224,7 +1252,9 @@ static int __devexit viv_dev_remove(struct platform_device *pdev)
     }
 
     gcmkFOOTER_NO();
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 10, 0)
     return 0;
+#endif
 }
 
 static void viv_dev_shutdown(struct platform_device *pdev)

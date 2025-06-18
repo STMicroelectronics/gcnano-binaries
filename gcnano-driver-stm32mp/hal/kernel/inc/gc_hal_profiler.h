@@ -1099,8 +1099,8 @@ struct _gcoPROFILER {
     gctBOOL                     needBltDump;
     gctBOOL                     isDummyDraw;
     gctBOOL                     isDebugCounter;
-    gctUINT32                   rdByte;
-    gctUINT32                   wrByte;
+    gctUINT64                   rdByte;
+    gctUINT64                   wrByte;
     gctUINT32                   busyCycle;
     gctUINT64                   totalCycle;
     gctUINT64_PTR               globaltimerStart;

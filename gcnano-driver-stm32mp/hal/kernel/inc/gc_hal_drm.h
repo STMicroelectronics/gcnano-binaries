@@ -202,6 +202,13 @@ struct drm_viv_gem_ref_node {
     __u32 ts_node;
 };
 
+struct drm_viv_gem_get_gpu_addr {
+    __u32 handle;
+
+    /* output */
+    __u64 gpu_physical;
+};
+
 #define DRM_VIV_GEM_CREATE          0x00
 #define DRM_VIV_GEM_LOCK            0x01
 #define DRM_VIV_GEM_UNLOCK          0x02
@@ -216,7 +223,8 @@ struct drm_viv_gem_ref_node {
 #define DRM_VIV_GEM_WRAP            0x0B /* design for ttm */
 #define DRM_VIV_GEM_MOVE_BUFFER     0x0C /* design for ttm */
 #define DRM_VIV_GEM_PF              0x0D /* design for ttm */
-#define DRM_VIV_NUM_IOCTLS          0x0E
+#define DRM_VIV_GEM_GET_GPU_ADDR    0x0E
+#define DRM_VIV_NUM_IOCTLS          0x0F
 
 #define DRM_IOCTL_VIV_GEM_CREATE        DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_CREATE, struct drm_viv_gem_create)
 #define DRM_IOCTL_VIV_GEM_LOCK          DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_LOCK, struct drm_viv_gem_lock)
@@ -231,9 +239,10 @@ struct drm_viv_gem_ref_node {
 #if gcdENABLE_TTM
 #define DRM_IOCTL_VIV_GEM_RELEASE       DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_RELEASE, struct drm_viv_gem_release)
 #define DRM_IOCTL_VIV_GEM_WRAP          DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_WRAP, struct drm_viv_gem_wrap)
-#define DRM_IOCTL_VIV_GEM_MOVE_BUFFER   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_MOVE_BUFFER,struct drm_viv_gem_move)
+#define DRM_IOCTL_VIV_GEM_MOVE_BUFFER   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_MOVE_BUFFER, struct drm_viv_gem_move)
 #define DRM_IOCTL_VIV_GEM_PF            DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_PF, struct drm_viv_gem_pf)
 #endif
+#define DRM_IOCTL_VIV_GEM_GET_GPU_ADDR  DRM_IOWR(DRM_COMMAND_BASE + DRM_VIV_GEM_GET_GPU_ADDR, struct drm_viv_gem_get_gpu_addr)
 
 #ifdef __KERNEL__
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)

@@ -689,6 +689,7 @@ _GFPFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
     if (mdlPriv->contiguous) {
         dma_unmap_page(dev, mdlPriv->dma_addr,
                        Mdl->numPages << PAGE_SHIFT, DMA_BIDIRECTIONAL);
+        kfree(Mdl->pages);
     } else {
         dma_unmap_sg(dev, mdlPriv->sgt.sgl,
                      mdlPriv->sgt.nents, DMA_BIDIRECTIONAL);
@@ -699,9 +700,6 @@ _GFPFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
         kfree(mdlPriv->sgt.sgl);
 #endif
     }
-
-    if (mdlPriv->contiguous)
-        kfree(Mdl->pages);
 
     for (i = 0; i < Mdl->numPages; i++) {
         if (mdlPriv->contiguous)
@@ -757,7 +755,7 @@ _GFPMmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
     gcmkHEADER_ARG("Allocator=%p Mdl=%p vma=%p", Allocator, Mdl, vma);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
-    ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(CONFIG_ANDROID))
+    ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(gcdANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else
     vma->vm_flags |= gcdVM_FLAGS;

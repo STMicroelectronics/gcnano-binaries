@@ -79,6 +79,10 @@ struct viv_gem_object {
     uint32_t                node_handle;
     gckVIDMEM_NODE          node_object;
     gctBOOL                 cacheable;
+#if gcdENABLE_DRM_FILE_DB
+    gctUINT32               pid;
+    gctBOOL                 isImport;
+#endif
 };
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
@@ -116,6 +120,20 @@ struct dma_buf *viv_gem_prime_export(struct drm_device *drm, struct drm_gem_obje
 
 static struct drm_gem_object *viv_gem_prime_import(struct drm_device *drm, struct dma_buf *dmabuf)
 {
+#if gcdENABLE_DRM_FILE_DB
+    struct drm_gem_object *gem_obj = gcvNULL;
+    struct viv_gem_object *viv_obj;
+
+    /* ioctl output */
+    gem_obj = kzalloc(sizeof(struct viv_gem_object), GFP_KERNEL);
+    drm_gem_private_object_init(drm, gem_obj, dmabuf->size);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+    gem_obj->funcs = &viv_gem_object_funcs;
+#endif
+
+    viv_obj = container_of(gem_obj, struct viv_gem_object, base);
+    viv_obj->isImport = gcvTRUE;
+#else /* gcdENABLE_DRM_FILE_DB */
     struct drm_gem_object *gem_obj = gcvNULL;
     struct viv_gem_object *viv_obj;
 
@@ -159,8 +177,89 @@ static struct drm_gem_object *viv_gem_prime_import(struct drm_device *drm, struc
     viv_obj->node_object = nodeObject;
 
 OnError:
+#endif
     return gem_obj;
 }
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0) || LINUX_VERSION_CODE > KERNEL_VERSION(6, 6, 12)) && gcdENABLE_DRM_FILE_DB
+static int viv_gem_prime_fd_to_handle(struct drm_device *drm, struct drm_file *file, int prime_fd, uint32_t *handle)
+{
+    struct drm_gem_object *gem_obj = gcvNULL;
+    struct viv_gem_object *viv_obj;
+    struct dma_buf *dmabuf;
+
+    int ret = 0;
+    gcsHAL_INTERFACE iface;
+    gckGALDEVICE gal_dev;
+    gckDEVICE device;
+    gckKERNEL kernel;
+    gckVIDMEM_NODE nodeObject;
+    gctUINT32 processID = gcmPTR2SIZE(file->driver_priv);
+    gceSTATUS status = gcvSTATUS_OK;
+
+    /* It calls viv_gem_prime_import() to creat a gem_obj. */
+    ret = drm_gem_prime_fd_to_handle(drm, file, prime_fd, handle);
+    if (ret)
+        goto OnError;
+
+    mutex_lock(&file->prime.lock);
+
+    gem_obj = drm_gem_object_lookup(file, *handle);
+    if (!gem_obj) {
+        ret = -ENOENT;
+        goto out_unlock;
+    }
+
+    mutex_unlock(&file->prime.lock);
+
+    viv_obj = container_of(gem_obj, struct viv_gem_object, base);
+    if (!viv_obj->isImport)
+        goto OnError;
+
+    viv_obj->isImport = gcvFALSE;
+
+    dmabuf = gem_obj->dma_buf;
+
+    gal_dev = (gckGALDEVICE)drm->dev_private;
+    if (!gal_dev)
+        gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
+
+    device = gal_dev->devices[0];
+
+    gckOS_ZeroMemory(&iface, sizeof(iface));
+    iface.pid = processID;
+    iface.command = gcvHAL_WRAP_USER_MEMORY;
+    iface.hardwareType = device->defaultHwType;
+    iface.u.WrapUserMemory.desc.flag = gcvALLOC_FLAG_DMABUF;
+    iface.u.WrapUserMemory.desc.handle = -1;
+    iface.u.WrapUserMemory.desc.dmabuf = gcmPTR_TO_UINT64(dmabuf);
+    gcmkONERROR(gckDEVICE_Dispatch(device, &iface));
+
+    kernel = device->kernels[0];
+    gcmkONERROR(gckVIDMEM_HANDLE_Lookup(kernel,
+                                        processID,
+                                        iface.u.WrapUserMemory.node,
+                                        &nodeObject));
+
+    viv_obj = container_of(gem_obj, struct viv_gem_object, base);
+    viv_obj->node_handle = iface.u.WrapUserMemory.node;
+    viv_obj->node_object = nodeObject;
+    viv_obj->pid = processID;
+
+    drm_gem_object_unreference_unlocked(gem_obj);
+
+    return 0;
+
+out_unlock:
+    mutex_unlock(&file->prime.lock);
+
+OnError:
+    if (gem_obj)
+        drm_gem_object_unreference_unlocked(gem_obj);
+
+    return ret;
+}
+#endif
 
 void viv_gem_free_object(struct drm_gem_object *gem_obj)
 {
@@ -174,6 +273,9 @@ void viv_gem_free_object(struct drm_gem_object *gem_obj)
     device = gal_dev->devices[0];
 
     gckOS_ZeroMemory(&iface, sizeof(iface));
+#if gcdENABLE_DRM_FILE_DB
+    iface.pid = viv_obj->pid;
+#endif
     iface.command = gcvHAL_RELEASE_VIDEO_MEMORY;
     iface.hardwareType = device->defaultHwType;
     iface.u.ReleaseVideoMemory.node = viv_obj->node_handle;
@@ -192,7 +294,11 @@ static int viv_ioctl_gem_create(struct drm_device *drm, void *data, struct drm_f
     gcsHAL_INTERFACE iface;
     gckGALDEVICE gal_dev;
     gckKERNEL kernel;
-    gctUINT32 processID;
+#if gcdENABLE_DRM_FILE_DB
+    gctUINT32 processID = gcmPTR2SIZE(file->driver_priv);
+#else
+    gctUINT32 processID = _GetProcessID();
+#endif
     gckVIDMEM_NODE nodeObject;
     gctUINT32 flags = gcvALLOC_FLAG_DMABUF_EXPORTABLE;
     gceSTATUS status = gcvSTATUS_OK;
@@ -217,6 +323,9 @@ static int viv_ioctl_gem_create(struct drm_device *drm, void *data, struct drm_f
         flags |= gcvALLOC_FLAG_SECURITY;
 
     gckOS_ZeroMemory(&iface, sizeof(iface));
+#if gcdENABLE_DRM_FILE_DB
+    iface.pid = processID;
+#endif
     iface.command = gcvHAL_ALLOCATE_LINEAR_VIDEO_MEMORY;
     iface.hardwareType = device->defaultHwType;
     iface.u.AllocateLinearVideoMemory.bytes = alignSize;
@@ -227,7 +336,6 @@ static int viv_ioctl_gem_create(struct drm_device *drm, void *data, struct drm_f
     gcmkONERROR(gckDEVICE_Dispatch(device, &iface));
 
     kernel = device->kernels[0];
-    gcmkONERROR(gckOS_GetProcessID(&processID));
     gcmkONERROR(gckVIDMEM_HANDLE_Lookup(kernel, processID,
                                         iface.u.AllocateLinearVideoMemory.node,
                                         &nodeObject));
@@ -244,6 +352,9 @@ static int viv_ioctl_gem_create(struct drm_device *drm, void *data, struct drm_f
     viv_obj->node_handle = iface.u.AllocateLinearVideoMemory.node;
     viv_obj->node_object = nodeObject;
     viv_obj->cacheable = flags & gcvALLOC_FLAG_CACHEABLE;
+#if gcdENABLE_DRM_FILE_DB
+    viv_obj->pid = processID;
+#endif
 
     /* drop reference from allocate - handle holds it now */
     drm_gem_object_unreference_unlocked(gem_obj);
@@ -276,6 +387,9 @@ static int viv_ioctl_gem_lock(struct drm_device *drm, void *data, struct drm_fil
     viv_obj = container_of(gem_obj, struct viv_gem_object, base);
 
     gckOS_ZeroMemory(&iface, sizeof(iface));
+#if gcdENABLE_DRM_FILE_DB
+    iface.pid = gcmPTR2SIZE(file->driver_priv);
+#endif
     iface.command = gcvHAL_LOCK_VIDEO_MEMORY;
     iface.hardwareType = device->defaultHwType;
     iface.u.LockVideoMemory.op = gcvLOCK_VIDEO_MEMORY_OP_LOCK |
@@ -317,6 +431,9 @@ static int viv_ioctl_gem_unlock(struct drm_device *drm, void *data, struct drm_f
     viv_obj = container_of(gem_obj, struct viv_gem_object, base);
 
     memset(&iface, 0, sizeof(iface));
+#if gcdENABLE_DRM_FILE_DB
+    iface.pid = gcmPTR2SIZE(file->driver_priv);
+#endif
     iface.command = gcvHAL_UNLOCK_VIDEO_MEMORY;
     iface.hardwareType = device->defaultHwType;
     iface.u.UnlockVideoMemory.op = gcvLOCK_VIDEO_MEMORY_OP_UNLOCK |
@@ -326,6 +443,9 @@ static int viv_ioctl_gem_unlock(struct drm_device *drm, void *data, struct drm_f
     gcmkONERROR(gckDEVICE_Dispatch(device, &iface));
 
     memset(&iface, 0, sizeof(iface));
+#if gcdENABLE_DRM_FILE_DB
+    iface.pid = gcmPTR2SIZE(file->driver_priv);
+#endif
     iface.command = gcvHAL_BOTTOM_HALF_UNLOCK_VIDEO_MEMORY;
     iface.hardwareType = device->defaultHwType;
     iface.u.BottomHalfUnlockVideoMemory.node = (gctUINT64)viv_obj->node_handle;
@@ -381,6 +501,9 @@ static int viv_ioctl_gem_cache(struct drm_device *drm, void *data, struct drm_fi
     }
 
     gckOS_ZeroMemory(&iface, sizeof(iface));
+#if gcdENABLE_DRM_FILE_DB
+    iface.pid               = gcmPTR2SIZE(file->driver_priv);
+#endif
     iface.command           = gcvHAL_CACHE;
     iface.hardwareType      = device->defaultHwType;
     iface.u.Cache.node      = viv_obj->node_handle;
@@ -727,17 +850,56 @@ OnError:
     return ret;
 }
 
+static int viv_ioctl_gem_get_gpu_addr(struct drm_device *drm, void *data,
+                struct drm_file *file)
+{
+    struct drm_viv_gem_get_gpu_addr *args = (struct drm_viv_gem_get_gpu_addr *)data;
+    struct drm_gem_object *gem_obj = gcvNULL;
+    struct viv_gem_object *viv_obj = gcvNULL;
+
+    gckGALDEVICE gal_dev;
+    gckDEVICE device;
+    gceSTATUS status = gcvSTATUS_OK;
+    gctPHYS_ADDR_T phys_addr;
+    gctBOOL contiguous;
+
+    gal_dev = (gckGALDEVICE)drm->dev_private;
+    if (!gal_dev)
+        return -ENODEV;
+    device = gal_dev->devices[0];
+
+    gem_obj = drm_gem_object_lookup(file, args->handle);
+    if (!gem_obj)
+        gcmkONERROR(gcvSTATUS_NOT_FOUND);
+
+    viv_obj = container_of(gem_obj, struct viv_gem_object, base);
+
+    /* Only contiguous memory can call this to get physical address */
+    gcmkONERROR(gckVIDMEM_NODE_IsContiguous(device->kernels[0], viv_obj->node_object, &contiguous));
+    if (!contiguous)
+        return -EINVAL;
+
+    status = gckVIDMEM_NODE_GetGPUPhysical(device->kernels[0], viv_obj->node_object, 0, &phys_addr);
+
+    if (gcmIS_SUCCESS(status))
+        args->gpu_physical = phys_addr;
+
+OnError:
+    return gcmIS_ERROR(status) ? -EIO : 0;
+}
+
 static const struct drm_ioctl_desc viv_ioctls[] = {
-    DRM_IOCTL_DEF_DRV(VIV_GEM_CREATE,        viv_ioctl_gem_create,     DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_LOCK,          viv_ioctl_gem_lock,       DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_UNLOCK,        viv_ioctl_gem_unlock,     DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_CACHE,         viv_ioctl_gem_cache,      DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_QUERY,         viv_ioctl_gem_query,      DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_TIMESTAMP,     viv_ioctl_gem_timestamp,  DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_SET_TILING,    viv_ioctl_gem_set_tiling, DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_GET_TILING,    viv_ioctl_gem_get_tiling, DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_ATTACH_AUX,    viv_ioctl_gem_attach_aux, DRM_AUTH | DRM_RENDER_ALLOW),
-    DRM_IOCTL_DEF_DRV(VIV_GEM_REF_NODE,      viv_ioctl_gem_ref_node,   DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_CREATE,        viv_ioctl_gem_create,       DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_LOCK,          viv_ioctl_gem_lock,         DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_UNLOCK,        viv_ioctl_gem_unlock,       DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_CACHE,         viv_ioctl_gem_cache,        DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_QUERY,         viv_ioctl_gem_query,        DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_TIMESTAMP,     viv_ioctl_gem_timestamp,    DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_SET_TILING,    viv_ioctl_gem_set_tiling,   DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_GET_TILING,    viv_ioctl_gem_get_tiling,   DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_ATTACH_AUX,    viv_ioctl_gem_attach_aux,   DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_REF_NODE,      viv_ioctl_gem_ref_node,     DRM_AUTH | DRM_RENDER_ALLOW),
+    DRM_IOCTL_DEF_DRV(VIV_GEM_GET_GPU_ADDR,  viv_ioctl_gem_get_gpu_addr, DRM_AUTH | DRM_RENDER_ALLOW),
 };
 
 static int viv_drm_open(struct drm_device *drm, struct drm_file *file)
@@ -790,7 +952,12 @@ static const struct file_operations viv_drm_fops = {
 #endif
     .poll               = drm_poll,
     .read               = drm_read,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
     .llseek             = no_llseek,
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+    .fop_flags          = FOP_UNSIGNED_OFFSET,
+#endif
 };
 
 static struct drm_driver viv_drm_driver = {
@@ -810,7 +977,11 @@ static struct drm_driver viv_drm_driver = {
 #endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0) || LINUX_VERSION_CODE > KERNEL_VERSION(6, 6, 12)
     .prime_handle_to_fd = drm_gem_prime_handle_to_fd,
+#if gcdENABLE_DRM_FILE_DB
+    .prime_fd_to_handle = viv_gem_prime_fd_to_handle,
+#else
     .prime_fd_to_handle = drm_gem_prime_fd_to_handle,
+#endif
 #endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
     .gem_prime_export   = viv_gem_prime_export,

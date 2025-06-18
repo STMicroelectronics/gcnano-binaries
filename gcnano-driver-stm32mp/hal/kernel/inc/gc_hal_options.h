@@ -411,6 +411,16 @@
 #endif
 
 /*
+ *   gcdDYNAMIC_COMMAND_QUEUES
+ *
+ *       When set 1, kernel command queues will be allocated dynamically.
+ *       If set 0, kernel command queues will be Pre-allocate.
+ */
+#ifndef gcdDYNAMIC_COMMAND_QUEUES
+#define gcdDYNAMIC_COMMAND_QUEUES                0
+#endif
+
+/*
  *   gcdPOWER_CONTROL_DELAY
  *
  *       The delay in milliseconds required to wait until the GPU has woke up
@@ -1652,6 +1662,14 @@
 */
 #ifndef gcdENABLE_SAMPLER_LOCATION_FIRST_MAPPING
 #define gcdENABLE_SAMPLER_LOCATION_FIRST_MAPPING            1
+#endif
+
+/*
+    gcdENABLE_DRM_FILE_DB
+        If enabled, database and handle will follow drm_file->pid.
+*/
+#ifndef gcdENABLE_DRM_FILE_DB
+#define gcdENABLE_DRM_FILE_DB                    0
 #endif
 
 #endif /* __gc_hal_options_h_ */
