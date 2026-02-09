@@ -591,7 +591,7 @@ _GetPower(IN gcsPLATFORM * Platform)
 #endif
     }
 
-    priv->clk_3d_axi = devm_clk_get(dev, "axi");
+    priv->clk_3d_axi = devm_clk_get(dev, "bus");
     if (IS_ERR(priv->clk_3d_axi)) {
         if (PTR_ERR(priv->clk_3d_axi) != -EPROBE_DEFER)
            dev_err(dev, "no AXI clock");

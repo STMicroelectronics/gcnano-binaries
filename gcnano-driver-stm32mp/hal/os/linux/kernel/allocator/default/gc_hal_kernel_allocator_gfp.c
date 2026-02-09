@@ -754,7 +754,7 @@ _GFPMmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
 
     gcmkHEADER_ARG("Allocator=%p Mdl=%p vma=%p", Allocator, Mdl, vma);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) || \
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
     ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(gcdANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else

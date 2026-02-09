@@ -251,7 +251,7 @@ reserved_mem_mmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
     pfn = (res->start >> PAGE_SHIFT) + skipPages;
 
     /* Make this mapping non-cached. */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) || \
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
     ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(gcdANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else

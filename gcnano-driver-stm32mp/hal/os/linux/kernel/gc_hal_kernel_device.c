@@ -64,7 +64,7 @@
 #define _GC_OBJ_ZONE    gcvZONE_DEVICE
 
 static gckGALDEVICE     galDevice;
-#undef CONFIG_DEBUG_FS
+
 #ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_CPU_CSKYV2) && LINUX_VERSION_CODE <= KERNEL_VERSION(3, 0, 8)
 static void
