@@ -3250,6 +3250,9 @@ gckOS_AllocatePagedMemory(gckOS Os, gckKERNEL Kernel, gctUINT32 Flag, gceVIDMEM_
     gctBOOL zoneDMA32 = gcvFALSE;
     gctBOOL acquiredMutex = gcvFALSE;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                    "%s Os=%p Flag=%x *Bytes=0x%zx",
+                    __func__, Os, Flag, *Bytes);
     gcmkHEADER_ARG("Os=%p Flag=%x *Bytes=0x%zx", Os, Flag, *Bytes);
 
     /* Verify the arguments. */
@@ -4542,7 +4545,7 @@ gckOS_Broadcast(gckOS Os, gckHARDWARE Hardware, gceBROADCAST Reason)
         break;
 
     case gcvBROADCAST_GPU_IDLE:
-        gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "GPU idle.");
+        gcmkTRACE_ZONE(gcvLEVEL_VERBOSE, gcvZONE_OS, "GPU idle.");
 #if gcdPOWER_SUSPEND_WHEN_IDLE
         state = gcvPOWER_SUSPEND_BROADCAST;
 #else
@@ -4558,7 +4561,7 @@ gckOS_Broadcast(gckOS Os, gckHARDWARE Hardware, gceBROADCAST Reason)
         break;
 
     case gcvBROADCAST_GPU_COMMIT:
-        gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "COMMIT has arrived.");
+        gcmkTRACE_ZONE(gcvLEVEL_VERBOSE, gcvZONE_OS, "COMMIT has arrived.");
 
         /* Add busy process DB. */
         gcmkONERROR(gckKERNEL_AddProcessDB(Hardware->kernel, 0,

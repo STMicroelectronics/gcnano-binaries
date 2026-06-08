@@ -866,6 +866,8 @@ gckVIDMEM_AllocateLinear(gckKERNEL Kernel, gckVIDMEM Memory,
 
     if (Bytes > Memory->freeBytes) {
         /* Not enough memory. */
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No freeBytes in %s (%d > %d)",
+                       __func__, Bytes, Memory->freeBytes);
         status = gcvSTATUS_OUT_OF_MEMORY;
         goto OnError;
     }
@@ -916,6 +918,7 @@ gckVIDMEM_AllocateLinear(gckKERNEL Kernel, gckVIDMEM Memory,
 
     if (node == gcvNULL) {
         /* Out of memory. */
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "Did not find node in %s", __func__);
         status = gcvSTATUS_OUT_OF_MEMORY;
         goto OnError;
     }
@@ -1796,12 +1799,15 @@ _AllocateVirtualChunk(gckKERNEL Kernel,
 
     if (bytes > VidMemBlock->freeBytes) {
         /* No enough memory. */
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No VidMemBlock freeBytes in %s (%d > %d)",
+                       __func__, bytes, VidMemBlock->freeBytes);
         status = gcvSTATUS_OUT_OF_MEMORY;
         goto OnError;
     }
 
     node = _FindVirtualChunkNode(Kernel, VidMemBlock, bytes);
     if (node == gcvNULL) {
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No _FindVirtualChunkNode in %s", __func__);
         status = gcvSTATUS_OUT_OF_MEMORY;
         goto OnError;
     }

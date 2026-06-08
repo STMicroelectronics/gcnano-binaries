@@ -188,6 +188,7 @@ _DebugfsCleanup(gckALLOCATOR Allocator)
 static gceSTATUS
 _DmabufAttach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL Mdl)
 {
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s npages=0x%zx", __func__);
     gceSTATUS status;
 
     gckOS os = Allocator->os;
@@ -230,6 +231,8 @@ _DmabufAttach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL Mdl)
     /* Get number of pages. */
     for_each_sg(sgt->sgl, s, sgt->orig_nents, i)
         npages += (sg_dma_len(s) + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s npages=0x%zx", __func__, npages);
 
     /* Allocate page array. */
     gcmkONERROR(gckOS_Allocate(os, npages * gcmSIZEOF(*pagearray), (gctPOINTER *)&pagearray));
@@ -460,6 +463,8 @@ _DmabufAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocator)
     gckALLOCATOR allocator;
     struct allocator_priv *priv = NULL;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s", __func__);
+
     priv = kmalloc(sizeof(*priv), GFP_KERNEL | gcdNOWARN);
 
     if (!priv)
@@ -477,6 +482,10 @@ _DmabufAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocator)
     allocator->destructor = _DmabufAllocatorDestructor;
 
     _DebugfsInit(allocator, Parent);
+
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s allocator->capability=0x%x",
+                   __func__, allocator->capability);
 
     *Allocator = allocator;
 

@@ -135,6 +135,8 @@ reserved_mem_debugfs_cleanup(gckALLOCATOR Allocator)
 static gceSTATUS
 reserved_mem_alloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 Flags)
 {
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                    "%s gcvSTATUS_OUT_OF_MEMORY", __func__);
     return gcvSTATUS_OUT_OF_MEMORY;
 }
 
@@ -153,8 +155,10 @@ reserved_mem_attach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL 
 
     res = kzalloc(sizeof(*res), GFP_KERNEL | gcdNOWARN);
 
-    if (!res)
+    if (!res) {
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "no kzalloc allocation in %s", __func__);
         return gcvSTATUS_OUT_OF_MEMORY;
+    }
 
     res->start = Desc->reservedMem.start;
     res->size = Desc->reservedMem.size;
@@ -251,7 +255,7 @@ reserved_mem_mmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
     pfn = (res->start >> PAGE_SHIFT) + skipPages;
 
     /* Make this mapping non-cached. */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) || \
     ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(gcdANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else
@@ -531,6 +535,8 @@ _ReservedMemoryAllocatorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *All
     gckALLOCATOR allocator = gcvNULL;
     struct reserved_mem_alloc *alloc = NULL;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s", __func__);
+
     gcmkONERROR(gckALLOCATOR_Construct(Os, &reserved_mem_ops, &allocator));
 
     alloc = kzalloc(sizeof(*alloc), GFP_KERNEL | gcdNOWARN);
@@ -560,6 +566,9 @@ _ReservedMemoryAllocatorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *All
                           | gcvALLOC_FLAG_32BIT_VA
                           | gcvALLOC_FLAG_PRIOR_32BIT_VA
                           ;
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s allocator->capability=0x%x",
+                   __func__, allocator->capability);
 
     *Allocator = allocator;
 

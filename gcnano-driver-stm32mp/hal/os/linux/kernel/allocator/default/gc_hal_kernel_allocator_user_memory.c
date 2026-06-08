@@ -876,6 +876,9 @@ _UserMemoryAttach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL Md
     Mdl->numPages = userMemory->pageCount + userMemory->extraPage;
     Mdl->contiguous = (userMemory->chunk_count == 1);
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s Mdl->numPages=0x%zx", __func__, Mdl->numPages);
+
     gcmkFOOTER_NO();
     return gcvSTATUS_OK;
 
@@ -1060,6 +1063,8 @@ _UserMemoryAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocato
     gceSTATUS status;
     gckALLOCATOR allocator;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s", __func__);
+
     gcmkONERROR(gckALLOCATOR_Construct(Os, &UserMemoryAllocatorOperations, &allocator));
 
     allocator->destructor = _UserMemoryAllocatorDestructor;
@@ -1069,6 +1074,10 @@ _UserMemoryAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocato
                           | gcvALLOC_FLAG_PRIOR_32BIT_VA;
 
     *Allocator = allocator;
+
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s allocator->capability=0x%x",
+                   __func__, allocator->capability);
 
     return gcvSTATUS_OK;
 

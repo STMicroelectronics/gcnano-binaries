@@ -195,8 +195,6 @@ _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
             return gcvSTATUS_NOT_SUPPORTED;
         }
         Args->irqs[core] = irq;
-        allocatorArray = allocatorArray_CMA_First;
-
 
     } else {
         /* Register base address */

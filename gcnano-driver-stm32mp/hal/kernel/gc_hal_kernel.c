@@ -1445,6 +1445,8 @@ AllocateMemory:
             /* Try contiguous virtual first. */
 #if gcdCONTIGUOUS_SIZE_LIMIT
             if (bytes > gcdCONTIGUOUS_SIZE_LIMIT && contiguous == gcvFALSE) {
+                gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "%d bytes > %d (gcdCONTIGUOUS_SIZE_LIMIT) in %s",
+                               bytes, gcdCONTIGUOUS_SIZE_LIMIT, __func__);
                 status = gcvSTATUS_OUT_OF_MEMORY;
             } else
 #endif
@@ -1506,6 +1508,8 @@ AllocateMemory:
                 dynamicAllocLocal = gcvFALSE;
             } else {
                 /* Finally failed. */
+                gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "status %d after gckVIDMEM_NODE_AllocateVirtual in %s",
+                                   status, __func__);
                 gcmkONERROR(status);
             }
 
@@ -1531,6 +1535,8 @@ AllocateMemory:
                 /* 512 KB */
                 else if (bytes > gcdLINEAR_SIZE_LIMIT) {
                     /* out of memory */
+                    gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "%d bytes > %d (gcdLINEAR_SIZE_LIMIT) in %s",
+                                   bytes, gcdLINEAR_SIZE_LIMIT, __func__);
                     status = gcvSTATUS_OUT_OF_MEMORY;
                 }
 #endif
@@ -1637,6 +1643,7 @@ AllocateMemory:
 #endif
         else {
             /* Out of pools. */
+            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "Out of pools in %s", __func__);
             gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
         }
     }
@@ -1654,6 +1661,7 @@ AllocateMemory:
         }
 
         /* Nothing allocated. */
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "Nothing allocated in %s", __func__);
         gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
     }
 

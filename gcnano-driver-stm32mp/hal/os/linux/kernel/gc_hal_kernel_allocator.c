@@ -133,6 +133,9 @@ gckOS_ImportAllocators(gckOS Os)
     INIT_LIST_HEAD(&Os->allocatorList);
 
     for (i = 0; i < gcmCOUNTOF(allocatorArray); i++) {
+        gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                        "%s allocatorArray[%d].name=%s",
+                   __func__, i, allocatorArray[i].name);
         if (allocatorArray[i].construct) {
             /* Construct allocator. */
             status = allocatorArray[i].construct(Os, &Os->allocatorDebugfsDir, &allocator);

@@ -197,6 +197,7 @@ _NonContiguousAlloc(struct gfp_mdl_priv *MdlPriv, gctSIZE_T NumPages, gctUINT32 
 
         if (!pages) {
             gcmkFOOTER_NO();
+            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No vmalloc pages in %s", __func__);
             return gcvSTATUS_OUT_OF_MEMORY;
         }
     }
@@ -207,6 +208,7 @@ _NonContiguousAlloc(struct gfp_mdl_priv *MdlPriv, gctSIZE_T NumPages, gctUINT32 
         if (!p) {
             _NonContiguousFree(pages, i);
             gcmkFOOTER_NO();
+            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No alloc_page in %s", __func__);
             return gcvSTATUS_OUT_OF_MEMORY;
         }
 
@@ -329,8 +331,10 @@ _NonContiguous1MPagesAlloc(struct gfp_mdl_priv *MdlPriv, gctSIZE_T *NumPages, gc
     pages = kmalloc(size, GFP_KERNEL | gcdNOWARN);
     if (!pages) {
         pages = vmalloc(size);
-        if (!pages)
+        if (!pages) {
+            gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "no pages vmalloc size %d in %s", size, __func__);
             gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+        }
     }
     MdlPriv->nonContiguousPages = pages;
 
@@ -347,11 +351,13 @@ _NonContiguous1MPagesAlloc(struct gfp_mdl_priv *MdlPriv, gctSIZE_T *NumPages, gc
             int order = get_order(gcd1M_PAGE_SIZE);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
-            if (order >= MAX_PAGE_ORDER)
+            if (order >= MAX_PAGE_ORDER) {
 #else
-            if (order >= MAX_ORDER)
+            if (order >= MAX_ORDER) {
 #endif
+                gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "order (%d) > MAX_ORDER in %s", order, __func__);
                 gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+           }
 
             MdlPriv->Pages1M[i] = alloc_pages(Gfp, order);
         }
@@ -399,6 +405,10 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
     int low  = 0;
     int high = 0;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s Allocator=%p Mdl=%p NumPages=%zu Flags=0x%x",
+                   __func__, Allocator, Mdl, NumPages, Flags);
+
     gcmkHEADER_ARG("Allocator=%p Mdl=%p NumPages=%zu Flags=0x%x",
                    Allocator, Mdl, NumPages, Flags);
 
@@ -424,8 +434,10 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
 
     mdlPriv = kzalloc(sizeof(*mdlPriv), GFP_KERNEL | __GFP_NORETRY);
 
-    if (!mdlPriv)
+    if (!mdlPriv) {
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No mdlPriv in %s", __func__);
         gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+    }
 
 #if defined(CONFIG_ZONE_DMA32) && LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)
     if ((Flags & gcvALLOC_FLAG_4GB_ADDR) ||
@@ -471,6 +483,7 @@ _GFPAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
 #else
             if (order >= MAX_ORDER) {
 #endif
+                gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "order (%d) > MAX_ORDER in %s", order, __func__);
                 status = gcvSTATUS_OUT_OF_MEMORY;
                 goto OnError;
             }
@@ -754,7 +767,7 @@ _GFPMmap(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctBOOL Cacheable,
 
     gcmkHEADER_ARG("Allocator=%p Mdl=%p vma=%p", Allocator, Mdl, vma);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || \
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) || \
     ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 26)) && defined(gcdANDROID))
     vm_flags_set(vma, gcdVM_FLAGS);
 #else
@@ -1113,6 +1126,8 @@ _GFPAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocator)
     gckALLOCATOR allocator = gcvNULL;
     struct gfp_alloc *priv = gcvNULL;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s", __func__);
+
     if (Os->iommu)
         gcmkONERROR(gcvSTATUS_NOT_SUPPORTED);
 
@@ -1154,6 +1169,10 @@ _GFPAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocator)
 #if defined(gcdEMULATE_SECURE_ALLOCATOR)
     allocator->capability |= gcvALLOC_FLAG_SECURITY;
 #endif
+
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s allocator->capability=0x%x",
+                   __func__, allocator->capability);
 
     *Allocator = allocator;
 

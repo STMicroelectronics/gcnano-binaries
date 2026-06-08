@@ -96,27 +96,6 @@ _DmaAlloctorInit(
 
 gcsALLOCATOR_DESC allocatorArray[] =
 {
-
-    /* GFP allocator. */
-    gcmkDEFINE_ALLOCATOR_DESC("gfp", _GFPAlloctorInit),
-
-    /* User memory importer. */
-    gcmkDEFINE_ALLOCATOR_DESC("user", _UserMemoryAlloctorInit),
-
-#ifndef NO_DMA_COHERENT
-    gcmkDEFINE_ALLOCATOR_DESC("dma", _DmaAlloctorInit),
-#endif
-
-#ifdef CONFIG_DMA_SHARED_BUFFER
-    /* Dmabuf allocator. */
-    gcmkDEFINE_ALLOCATOR_DESC("dmabuf", _DmabufAlloctorInit),
-#endif
-
-    gcmkDEFINE_ALLOCATOR_DESC("reserved-mem", _ReservedMemoryAllocatorInit),
-};
-
-gcsALLOCATOR_DESC allocatorArray_CMA_First[] =
-{
 #ifndef NO_DMA_COHERENT
     gcmkDEFINE_ALLOCATOR_DESC("dma", _DmaAlloctorInit),
 #endif
@@ -135,7 +114,4 @@ gcsALLOCATOR_DESC allocatorArray_CMA_First[] =
     gcmkDEFINE_ALLOCATOR_DESC("reserved-mem", _ReservedMemoryAllocatorInit),
 };
 
-#else
-extern gcsALLOCATOR_DESC * allocatorArray;
-extern gcsALLOCATOR_DESC * allocatorArray_CMA_First;
 #endif

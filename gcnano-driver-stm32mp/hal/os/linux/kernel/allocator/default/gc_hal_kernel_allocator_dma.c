@@ -131,6 +131,8 @@ _DmaAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
     struct device *dev = (struct device *)Mdl->device;
     gckOS os = Allocator->os;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s Mdl=%p NumPages=0x%zx Flags=0x%x", __func__, Mdl, NumPages, Flags);
     gcmkHEADER_ARG("Mdl=%p NumPages=0x%zx Flags=0x%x", Mdl, NumPages, Flags);
 
     gcmkONERROR(gckOS_Allocate(os, sizeof(struct mdl_dma_priv), (gctPOINTER *)&mdlPriv));
@@ -168,8 +170,10 @@ _DmaAlloc(gckALLOCATOR Allocator, PLINUX_MDL Mdl, gctSIZE_T NumPages, gctUINT32 
     }
 #endif
 
-    if (mdlPriv->kvaddr == gcvNULL)
+    if (mdlPriv->kvaddr == gcvNULL) {
+        gcmkTRACE_ZONE(gcvLEVEL_ERROR, gcvZONE_OS, "No kvaddr in %s", __func__);
         gcmkONERROR(gcvSTATUS_OUT_OF_MEMORY);
+    }
 
 #if defined(CONFIG_X86)
 #if gcdENABLE_BUFFERABLE_VIDEO_MEMORY
@@ -561,6 +565,8 @@ _DmaAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocator)
     gckALLOCATOR allocator = gcvNULL;
     gcsDMA_PRIV_PTR priv = gcvNULL;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "%s", __func__);
+
     gcmkONERROR(gckALLOCATOR_Construct(Os, &DmaAllocatorOperations, &allocator));
 
     priv = kzalloc(gcmSIZEOF(gcsDMA_PRIV), GFP_KERNEL | gcdNOWARN);
@@ -602,6 +608,10 @@ _DmaAlloctorInit(gckOS Os, gcsDEBUGFS_DIR *Parent, gckALLOCATOR *Allocator)
         allocator->capability |= gcvALLOC_FLAG_CACHEABLE;
         allocator->capability |= gcvALLOC_FLAG_MEMLIMIT;
     }
+
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                   "%s allocator->capability=0x%x",
+                   __func__, allocator->capability);
 
     *Allocator = allocator;
 

@@ -273,6 +273,9 @@ _CreateBufferObj(gckGALDEVICE dev,
     gctPOINTER pointer;
     gckOS Os = dev->os;
 
+    gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS,
+                    "%s size = %lx byte_align = %x domain = %x flags = %x type = %d",
+                    __func__, bp->size, bp->byte_align, bp->domain, bp->flags, bp->type);
     gcmkHEADER_DRM_ARG("size = %lx byte_align = %x domain = %x flags = %x type = %d",
                         bp->size, bp->byte_align, bp->domain, bp->flags, bp->type);
 

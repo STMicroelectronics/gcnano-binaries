@@ -52,6 +52,7 @@
 #
 ##############################################################################
 
+DEBUG                             ?= 0
 ARCH_TYPE                         ?= arm
 SDK_DIR                           ?= $(AQROOT)/build/sdk
 VIVANTE_ENABLE_3D                 ?= 1

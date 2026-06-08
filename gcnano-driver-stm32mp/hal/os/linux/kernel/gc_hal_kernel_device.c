@@ -54,6 +54,8 @@
 
 #include "gc_hal_kernel_linux.h"
 #include "gc_hal_kernel_allocator.h"
+#include <linux/devfreq.h>
+#include <linux/pm_opp.h>
 #include <linux/pagemap.h>
 #include <linux/seq_file.h>
 #include <linux/mman.h>
@@ -64,7 +66,7 @@
 #define _GC_OBJ_ZONE    gcvZONE_DEVICE
 
 static gckGALDEVICE     galDevice;
-
+#undef CONFIG_DEBUG_FS
 #ifdef CONFIG_DEBUG_FS
 #if defined(CONFIG_CPU_CSKYV2) && LINUX_VERSION_CODE <= KERNEL_VERSION(3, 0, 8)
 static void
@@ -477,12 +479,12 @@ static const char *poolStr[gcvPOOL_NUMBER_OF_POOLS] = {
     "External",
     "Unified",
     "System",
-    "Sram",
     "Virtual",
     "User",
     "Insram",
     "Exsram",
     "Exclusive",
+    "System32bVa"
 };
 
 static int
@@ -1046,9 +1048,8 @@ OnError:
     return len;
 }
 
-static int dumpProcess;
+static int dumpProcess = 0;
 
-#ifdef CONFIG_DEBUG_FS
 static int
 _ShowVideoMemoryOldFormat(void *File, gcsDATABASE_PTR Database, gctBOOL All)
 {
@@ -1191,7 +1192,6 @@ OnError:
         return -EINVAL;
     return status;
 }
-#endif
 
 static int
 gc_vidmem_show(void *m, void *unused, gctBOOL all)
@@ -1199,7 +1199,6 @@ gc_vidmem_show(void *m, void *unused, gctBOOL all)
     return 0;
 }
 
-#ifdef CONFIG_DEBUG_FS
 static int
 gc_reserved_mem_usage_show(void *m)
 {
@@ -1211,7 +1210,11 @@ gc_reserved_mem_usage_show(void *m)
     size_t t_freeBytes = 0;
     size_t t_bytes = 0;
     int t_usage = 0;
+#ifdef CONFIG_DEBUG_FS
     void *ptr = m;
+#else
+    char *ptr = (char *)m;
+#endif
 
     len = fs_printf(ptr, "%-25s %16s %16s %16s\n", "", "FreeBytes", "TotalBytes", "Usage(%)");
 
@@ -1348,9 +1351,14 @@ gc_reserved_mem_usage_show(void *m)
         }
         len += fs_printf(ptr + len, "\n");
     }
+#ifdef CONFIG_DEBUG_FS
     return 0;
+#else
+    return len;
+#endif
 }
 
+#ifdef CONFIG_DEBUG_FS
 static inline int
 strtoint_from_user(const char __user *s, size_t count, int *res)
 {
@@ -1808,15 +1816,24 @@ version_show(struct device *dev, struct device_attribute *attr, char *buf)
 DEVICE_ATTR_RO(version);
 
 static ssize_t
-load_show(struct device *dev, struct device_attribute *attr, char *buf)
+reserved_mem_usage_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    return gc_load_show((void *)buf, NULL);
+    return gc_reserved_mem_usage_show((void *)buf);
 }
+
+static ssize_t
+reserved_mem_usage_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    if (kstrtoint(buf, 0, &dumpProcess))
+        return gcvSTATUS_INVALID_DATA;
+    return count;
+}
+DEVICE_ATTR_RW(reserved_mem_usage);
 
 static ssize_t
 vidmem_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    return gc_vidmem_show((void *)buf, NULL, gcvFALSE);
+    return gc_vidmem_old_show((void *)buf, NULL, gcvFALSE);
 }
 
 static ssize_t
@@ -1887,6 +1904,12 @@ poweroff_timeout_store(struct device *dev, struct device_attribute *attr, const 
 DEVICE_ATTR_RW(poweroff_timeout);
 
 static ssize_t
+load_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    return gc_load_show((void *)buf, NULL);
+}
+
+static ssize_t
 load_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     if (kstrtoint(buf, 0, &delayMs))
@@ -1910,6 +1933,7 @@ static struct attribute *Info_attrs[] = {
     &dev_attr_clk.attr,
     &dev_attr_poweroff_timeout.attr,
     &dev_attr_load.attr,
+    &dev_attr_reserved_mem_usage.attr,
     NULL,
 };
 ATTRIBUTE_GROUPS(Info);

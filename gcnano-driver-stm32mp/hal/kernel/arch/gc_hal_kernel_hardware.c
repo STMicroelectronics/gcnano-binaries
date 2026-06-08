@@ -5572,21 +5572,24 @@ OnError:
 }
 
 #if gcmIS_DEBUG(gcdDEBUG_TRACE)
+#define BASE_STATES_COUNT      5
+#define BROADCAST_STATES_COUNT 4
+#define TIMEOUT_STATES_COUNT   4
 static gctCONST_STRING
 _PowerEnum(gceCHIPPOWERSTATE State)
 {
-    const gctCONST_STRING baseStates[] = {
+    const gctCONST_STRING baseStates[BASE_STATES_COUNT] = {
         "ON", "IDLE", "SUSPEND", "OFF", "ON[auto]",
     };
 
-    const gctCONST_STRING broadcastStates[] = {
+    const gctCONST_STRING broadcastStates[BROADCAST_STATES_COUNT] = {
         "",
         "IDLE[broadcast]",
         "SUSPEND[broadcast]",
         "OFF[broadcast]",
     };
 
-    const gctCONST_STRING timeoutStates[] = {
+    const gctCONST_STRING timeoutStates[TIMEOUT_STATES_COUNT] = {
         "",
         "IDLE[timeout]",
         "SUSPEND[timeout]",
@@ -5598,11 +5601,23 @@ _PowerEnum(gceCHIPPOWERSTATE State)
                      "array subscript does not match");
 
     if (State & gcvPOWER_FLAG_BROADCAST)
-        return broadcastStates[State & ~gcvPOWER_FLAG_BROADCAST];
+    {
+        unsigned int index = State & ~gcvPOWER_FLAG_BROADCAST;
+        if (index < BROADCAST_STATES_COUNT)
+            return broadcastStates[index];
+    }
     else if (State & gcvPOWER_FLAG_TIMEOUT)
-        return timeoutStates[State & ~gcvPOWER_FLAG_TIMEOUT];
+    {
+        unsigned int index = State & ~gcvPOWER_FLAG_TIMEOUT;
+        if (index < TIMEOUT_STATES_COUNT)
+            return timeoutStates[index];
+    }
     else if ((State >= gcvPOWER_ON) && (State <= gcvPOWER_ON_AUTO))
-        return baseStates[State - gcvPOWER_ON];
+    {
+        unsigned int index = State - gcvPOWER_ON;
+        if (index < BASE_STATES_COUNT)
+            return baseStates[index];
+    }
 
     return "unknown";
 }

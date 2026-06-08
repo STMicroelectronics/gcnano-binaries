@@ -3627,7 +3627,7 @@ gckOS_Broadcast(
         break;
 
     case gcvBROADCAST_GPU_COMMIT:
-        gcmkTRACE_ZONE(gcvLEVEL_INFO, gcvZONE_OS, "COMMIT has arrived.");
+        gcmkTRACE_ZONE(gcvLEVEL_VERBOSE, gcvZONE_OS, "COMMIT has arrived.");
 
         /* Add busy process DB. */
         gcmkONERROR(gckKERNEL_AddProcessDB(Hardware->kernel,
