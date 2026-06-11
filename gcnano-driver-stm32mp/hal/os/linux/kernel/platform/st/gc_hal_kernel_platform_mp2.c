@@ -54,6 +54,7 @@
 
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/devfreq.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/pm_domain.h>
@@ -104,6 +105,11 @@ struct st_priv {
 
     /* Multi Power domains management */
     struct dev_pm_domain_list *gpu_pd_list;
+
+    /* devfreq/OPP management */
+    struct devfreq *devfreq;
+    struct devfreq_dev_profile profile;
+    int id_perf;
 
 #if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
     struct gpufreq_cooling_device *gpu_cooling_dev;
@@ -412,6 +418,16 @@ static DRIVER_ATTR_RW(gpuClockScale);
 
 #endif
 
+static inline int devfreq_target(struct device *dev, unsigned long *freq, u32 flags)
+{
+    /*
+     * It won't work if the SCMI performance level
+     * is not the equal to the frequency.
+     */
+    dev_dbg(dev, "devfreq_target(): freq %lu flags %u\n", *freq, flags);
+    return dev_pm_genpd_set_performance_state(dev, (unsigned int)*freq);
+}
+
 gceSTATUS
 _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
 {
@@ -420,6 +436,8 @@ _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
     struct device_node *np;
     struct resource* res;
     struct resource  contig_res;
+    struct st_priv *priv = stpriv;
+    int id_perf;
 
     int irq;
     int core = gcvCORE_MAJOR;
@@ -462,6 +480,32 @@ _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
         *Args->devices[0]->dma_mask = DMA_32BIT_MASK;
         Args->devices[0]->coherent_dma_mask = DMA_32BIT_MASK;
 #endif
+
+        /*
+         * Find dt perf power-domain index
+         * Chipset versions with several OPPs must have "power-domain" starting
+         * with "<&scmi_perf 1>" and "power-domain-names" starting with "perf".
+         */
+        id_perf = of_property_match_string(dev->of_node, "power-domain-names", "perf");
+        if (id_perf != 0) {
+            dev_dbg(dev, "No Power domain \"perf\" detected or not at the right position! "
+                    "Check dt gpu nodes (Chipset versions with several OPPs must have "
+                    "\"power-domain\" starting with \"<&scmi_perf 1>\" and "
+                    "\"power-domain-names\" starting with \"perf\").");
+
+        } else {
+            priv->id_perf = id_perf;
+            priv->profile.target = devfreq_target;
+            priv->devfreq = devm_devfreq_add_device(priv->gpu_pd_list->pd_devs[id_perf],
+                                                    &priv->profile, DEVFREQ_GOV_USERSPACE,
+                                                    priv);
+            if (IS_ERR(priv->devfreq)) {
+                int ret = PTR_ERR(priv->devfreq);
+                dev_warn(dev, "Failed to add devfreq device: %d\n", ret);
+                priv->devfreq = NULL;
+            }
+
+        }
 
     }
     return gcvSTATUS_OK;
@@ -697,6 +741,12 @@ _PutPower(IN gcsPLATFORM * Platform)
     if (priv->supply) {
         devm_regulator_put(priv->supply);
         priv->supply = NULL;
+    }
+
+    if (priv->devfreq) {
+        devm_devfreq_remove_device(priv->gpu_pd_list->pd_devs[priv->id_perf],
+                                   priv->devfreq);
+        priv->devfreq = NULL;
     }
 
     if (priv->gpu_pd_list) {

@@ -324,8 +324,8 @@ OnError:
     return status;
 }
 
-gceSTATUS
-gc_mmuinfo_show(void)
+static int
+gc_mmuinfo_show(void *m, void *data)
 {
     gckGALDEVICE device = galDevice;
     gckKERNEL kernel = _GetValidKernel(device);
@@ -348,6 +348,13 @@ gc_mmuinfo_show(void)
 
     gctUINT32 i;
 
+    int len = 0;
+#ifdef CONFIG_DEBUG_FS
+    void *ptr = m;
+#else
+    char *ptr = (char *)m;
+#endif
+
     if (!kernel)
         gcmkONERROR(gcvSTATUS_INVALID_OBJECT);
 
@@ -355,15 +362,15 @@ gc_mmuinfo_show(void)
     if (!mmu)
         gcmkONERROR(gcvSTATUS_INVALID_OBJECT);
 
-    gcmkPRINT("MMU PAGE TABLE:\n");
+    len = fs_printf(ptr, "MMU PAGE TABLE:\n");
 
-    gcmkPRINT("  BASE ADDRESS:\n");
+    len += fs_printf(ptr + len, "  BASE ADDRESS:\n");
     for (i = 0; i < gcdSYSTEM_RESERVE_COUNT; i++)
-        gcmkPRINT("    contiguousBaseAddresses[%d]: 0x%010llX\n", i, mmu->contiguousBaseAddresses[i]);
+        len += fs_printf(ptr + len, "    contiguousBaseAddresses[%d]: 0x%010llX\n", i, mmu->contiguousBaseAddresses[i]);
 
-    gcmkPRINT("    externalBaseAddress:        0x%010llX\n", mmu->externalBaseAddress);
-    gcmkPRINT("    internalBaseAddress:        0x%010llX\n", mmu->internalBaseAddress);
-    gcmkPRINT("    exclusiveBaseAddress:       0x%010llX\n", mmu->exclusiveBaseAddress);
+    len += fs_printf(ptr + len, "    externalBaseAddress:        0x%010llX\n", mmu->externalBaseAddress);
+    len += fs_printf(ptr + len, "    internalBaseAddress:        0x%010llX\n", mmu->internalBaseAddress);
+    len += fs_printf(ptr + len, "    exclusiveBaseAddress:       0x%010llX\n", mmu->exclusiveBaseAddress);
 
     /* get extAddress */
     extAddr = (gctUINT32)(mmu->mtlbPhysical >> 32);
@@ -371,12 +378,12 @@ gc_mmuinfo_show(void)
     if (extAddr & 0xFFFFFF00)
         gcmkONERROR(gcvSTATUS_NOT_SUPPORTED);
 
-    gcmkPRINT("  Extensional 8 bit for 40bit address: 0x%02X\n", extAddr);
+    len += fs_printf(ptr + len, "  Extensional 8 bit for 40bit address: 0x%02X\n", extAddr);
 
-    gcmkPRINT("  MTLB ENTRY:\n");
+    len += fs_printf(ptr + len, "  MTLB ENTRY:\n");
 
     /* first mtlb entry is reserved for SRAM */
-    gcmkPRINT("    MTLB entry[0] is reserved for SRAM.\n");
+    len += fs_printf(ptr + len, "    MTLB entry[0] is reserved for SRAM.\n");
     ++mStart;
 
     while (mStart < mEnd) {
@@ -395,22 +402,22 @@ gc_mmuinfo_show(void)
             case 0:
                 sEnd = gcdMMU_STLB_4K_ENTRY_NUM;
                 stlbSize = gcdMMU_STLB_4K_SIZE;
-                gcmkPRINT("    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 4K, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
+                len += fs_printf(ptr + len, "    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 4K, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
                 break;
             case 1:
                 sEnd = gcdMMU_STLB_64K_ENTRY_NUM;
                 stlbSize = gcdMMU_STLB_64K_SIZE;
-                gcmkPRINT("    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 64K, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
+                len += fs_printf(ptr + len, "    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 64K, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
                 break;
             case 2:
                 sEnd = gcdMMU_STLB_1M_ENTRY_NUM;
                 stlbSize = gcdMMU_STLB_1M_SIZE;
-                gcmkPRINT("    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 1M, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
+                len += fs_printf(ptr + len, "    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 1M, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
                 break;
             case 3:
                 sEnd = gcdMMU_STLB_16M_ENTRY_NUM;
                 stlbSize = gcdMMU_STLB_16M_SIZE;
-                gcmkPRINT("    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 16M, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
+                len += fs_printf(ptr + len, "    MTLB entry[%d]:   STLB physical = 0x%010lX, PAGE_SIZE = 16M, MASK = 0x%02X\n", mStart, stlbPhysical, maskMtlb);
                 break;
             default:
                 pr_warn("\nERROR: unknown PAGE SIZE...\n");
@@ -418,13 +425,14 @@ gc_mmuinfo_show(void)
                 break;
             }
 
+
             /* Convert GPU physical to CPU physical. */
             gckOS_GPUPhysicalToCPUPhysical(kernel->os, stlbPhysical, &stlbPhysical);
 
             gcmkONERROR(gckOS_MapPhysical(kernel->os, stlbPhysical, stlbSize, (gctPOINTER *)&stlbLogical));
 
             /* print stlb */
-            gcmkPRINT("      STLB entry : \n");
+            len += fs_printf(ptr + len, "      STLB entry : \n");
             stlbEntryNum = stlbSize >> 2;
             for (sStart = 0; sStart < stlbEntryNum; ++sStart) {
                 stlbEntry = _ReadPageEntry(stlbLogical + sStart);
@@ -432,20 +440,23 @@ gc_mmuinfo_show(void)
                     gctUINT64 pagePhysical = ((gctUINT64)stlbEntry & 0XFF0) << 28 | ((gctUINT64)stlbEntry & ~0XFFF);
                     gctUINT32 maskStlb = stlbEntry & 0XF;
 
-                    gcmkPRINT("        stlb entry[%04d]:      Page Physical = 0x%010lX  mask = 0x%01X\n", sStart, pagePhysical, maskStlb);
+                    len += fs_printf(ptr + len, "        stlb entry[%04d]:      Page Physical = 0x%010lX  mask = 0x%01X\n", sStart, pagePhysical, maskStlb);
                 }
             }
 
             gcmkONERROR(gckOS_UnmapPhysical(kernel->os, stlbLogical, stlbSize));
         } else {
-            gcmkPRINT("      STLB is empty\n");
+            len += fs_printf(ptr + len, "      STLB is empty\n");
+
         }
         mStart++;
     }
 
-    return status;
+    return len;
+
 OnError:
-    gcmkPRINT("ERROR...\n");
+    if (status == gcvSTATUS_INVALID_ARGUMENT)
+        return -EINVAL;
     return status;
 }
 
@@ -974,16 +985,10 @@ OnError:
 }
 
 static int
-gc_dump_trigger_show(void *m, void *data)
+gc_dump_trigger_show(void)
 {
     int len = 0;
-
 #if gcdENABLE_3D
-#ifdef CONFIG_DEBUG_FS
-    void *ptr = m;
-# else
-    char *ptr = (char *)m;
-# endif
 
     gckGALDEVICE gal_device = galDevice;
     gckDEVICE device = gcvNULL;
@@ -994,9 +999,6 @@ gc_dump_trigger_show(void *m, void *data)
     gceCHIPPOWERSTATE statesStored, state;
 
     gctINT i = 0;
-
-    len += fs_printf(ptr + len, "Dump one device: For example, dump cores on device 0: echo 0 > /sys/kernel/debug/gc/dump_trigger; cat /sys/kernel/debug/gc/dump_trigger\n");
-    len += fs_printf(ptr + len, "The dump will be in [dmesg].\n");
 
     device = gal_device->devices[dumpDevice];
 
@@ -1384,7 +1386,18 @@ gc_vidmem_write(const char __user *buf, size_t count, void *data)
 static int
 gc_dump_trigger_write(const char __user *buf, size_t count, void *data)
 {
-    return strtoint_from_user(buf, count, &dumpDevice);
+    gckGALDEVICE gal_device = galDevice;
+
+    int ret = strtoint_from_user(buf, count, &dumpDevice);
+
+    if ((ret <= 0) || (dumpDevice >= gal_device->args.devCount)) {
+        gcmkPRINT("Invalid device number! Dump device number set to 0");
+        dumpDevice = 0;
+    }
+
+    gc_dump_trigger_show();
+
+    return ret;
 }
 
 #if gcdENABLE_MP_SWITCH
@@ -1652,7 +1665,7 @@ gc_meminfo_show_debugfs(struct seq_file *m, void *data)
 static int
 gc_mmuinfo_show_debugfs(struct seq_file *m, void *data)
 {
-    return gc_mmuinfo_show();
+    return gc_mmuinfo_show((void *)m, data);
 }
 
 static int
@@ -1700,7 +1713,11 @@ gc_reserved_mem_usage_show_debugfs(struct seq_file *m, void *data)
 static int
 gc_dump_trigger_show_debugfs(struct seq_file *m, void *data)
 {
-    return gc_dump_trigger_show((void *)m, data);
+    void *ptr = m;
+    int len = 0;
+
+    len += fs_printf(ptr + len, "To dump the gpu device 0, use the command \"echo 0 > /sys/kernel/debug/gc/dump_trigger\"\n");
+    return len;
 }
 
 static int
@@ -1772,12 +1789,33 @@ meminfo_show(struct device *dev, struct device_attribute *attr, char *buf)
 }
 DEVICE_ATTR_RO(meminfo);
 
+#define MMU_DUMP_MAP_SIZE (20 * PAGE_SIZE) /* Around 27k but better to have margin */
+
 static ssize_t
-mmu_show(struct device *dev, struct device_attribute *attr, char *buf)
+mmu_read(struct file *filp, struct kobject *kobj, struct bin_attribute *attr,
+         char *buf, loff_t off, size_t count)
+
 {
-    return gc_mmuinfo_show();
+    char *tmp_buf = kvmalloc(MMU_DUMP_MAP_SIZE, GFP_KERNEL);
+    if (!tmp_buf) {
+        gcmkPRINT("Not enough memory!");
+        return 0;
+    }
+
+    /*
+    * TODO gc_mmuinfo_show() is called several times (~8x) that is not really
+    *      efficient but this is only for debugging. It could be nice to add a
+    *      mechanism to avoid calling it several times...
+    */
+    gc_mmuinfo_show((void *)tmp_buf, NULL);
+
+    int ret = memory_read_from_buffer(buf, count, &off, tmp_buf, strlen(tmp_buf));
+
+    kvfree(tmp_buf);
+
+    return ret;
 }
-DEVICE_ATTR_RO(mmu);
+static BIN_ATTR_RO(mmu, MMU_DUMP_MAP_SIZE);
 
 static ssize_t
 idle_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -1846,14 +1884,27 @@ DEVICE_ATTR_RW(vidmem64x);
 static ssize_t
 dump_trigger_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    return gc_dump_trigger_show((void *)buf, NULL);
+    int len = 0;
+
+    len = fs_printf(buf, "To dump the gpu device 0, use the command \"echo 0 > /sys/devices/platform/soc@0/42080000.bus/48280000.gpu/dump_trigger\"\n");
+    return len;
 }
 
 static ssize_t
 dump_trigger_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
-    if (kstrtoint(buf, 0, &dumpDevice))
+    gckGALDEVICE gal_device = galDevice;
+
+    int ret = kstrtoint(buf, 0, &dumpDevice);
+
+    if ((ret) || (dumpDevice >= gal_device->args.devCount)) {
+        gcmkPRINT("Invalid device number! Dump device number set to 0");
+        dumpDevice = 0;
         return gcvSTATUS_INVALID_DATA;
+    }
+
+    gc_dump_trigger_show();
+
     return count;
 }
 DEVICE_ATTR_RW(dump_trigger);
@@ -1899,7 +1950,6 @@ static struct attribute *Info_attrs[] = {
     &dev_attr_info.attr,
     &dev_attr_clients.attr,
     &dev_attr_meminfo.attr,
-    &dev_attr_mmu.attr,
     &dev_attr_idle.attr,
     &dev_attr_database.attr,
     &dev_attr_database64x.attr,
@@ -1912,7 +1962,22 @@ static struct attribute *Info_attrs[] = {
     &dev_attr_load.attr,
     NULL,
 };
-ATTRIBUTE_GROUPS(Info);
+
+static struct bin_attribute *Info_bin_attrs[] = {
+    &bin_attr_mmu,
+    NULL,
+};
+
+static struct attribute_group Info_attr_group = {
+	.attrs = Info_attrs,
+	.bin_attrs = Info_bin_attrs,
+};
+
+const struct attribute_group *Info_groups[] = {
+	&Info_attr_group,
+	NULL,
+};
+
 #endif
 
 static gceSTATUS

@@ -993,6 +993,7 @@ gckKERNEL_Destroy(gckKERNEL Kernel)
     gctSIZE_T i;
     gcsDATABASE_PTR database, databaseNext;
     gcsDATABASE_RECORD_PTR record, recordNext;
+    gctINT32 db_refcnt;
 
     gcmkHEADER_ARG("Kernel=%p", Kernel);
 
@@ -1004,6 +1005,57 @@ gckKERNEL_Destroy(gckKERNEL Kernel)
         Kernel->debugMutex = gcvNULL;
     }
 #endif
+
+    /* Destroy the database. */
+    do {
+        if (Kernel->db == gcvNULL)
+            break;
+
+        if (Kernel->db->refcnt) {
+            gcmkVERIFY_OK(gckOS_AtomDecrement(Kernel->os, Kernel->db->refcnt, &db_refcnt));
+
+            /* Other kernel is sharing this db */
+            if (db_refcnt > 1)
+                break;
+        }
+
+        for (i = 0; i < gcmCOUNTOF(Kernel->db->db); ++i) {
+            if (Kernel->db->db[i] != gcvNULL) {
+                gcmkVERIFY_OK(gckKERNEL_DestroyProcessDB(Kernel,
+                                                         Kernel->db->db[i]->processID));
+            }
+        }
+
+        /* Free all databases. */
+        for (database = Kernel->db->freeDatabase;
+             database != gcvNULL;
+             database = databaseNext) {
+            databaseNext = database->next;
+
+            if (database->counterMutex) {
+                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, database->counterMutex));
+                database->counterMutex = gcvNULL;
+            }
+
+            gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, database));
+        }
+
+        if (Kernel->db->lastDatabase != gcvNULL) {
+            if (Kernel->db->lastDatabase->counterMutex) {
+                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os,
+                                                Kernel->db->lastDatabase->counterMutex));
+                Kernel->db->lastDatabase->counterMutex = gcvNULL;
+            }
+
+            gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, Kernel->db->lastDatabase));
+        }
+
+        /* Free all database records. */
+        for (record = Kernel->db->freeRecord; record != gcvNULL; record = recordNext) {
+            recordNext = record->next;
+            gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, record));
+        }
+    } while (gcvFALSE);
 
     if (Kernel->processPageTable) {
         if (Kernel->mmuDescMutex) {
@@ -1088,27 +1140,6 @@ gckKERNEL_Destroy(gckKERNEL Kernel)
             gcmkVERIFY_OK(gckHARDWARE_Destroy(Kernel->hardware));
         }
 
-    if (Kernel->atomClients) {
-        /* Detsroy the client atom. */
-        gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->atomClients));
-        Kernel->atomClients = gcvNULL;
-    }
-
-    if (Kernel->resetStatus) {
-        gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->resetStatus));
-        Kernel->resetStatus = gcvNULL;
-    }
-
-    if (Kernel->atomBroCoreMask) {
-        gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->atomBroCoreMask));
-        Kernel->atomBroCoreMask = gcvNULL;
-    }
-
-    if (Kernel->vidMemBlockMutex) {
-        gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, Kernel->vidMemBlockMutex));
-        Kernel->vidMemBlockMutex = gcvNULL;
-    }
-
 #if gcdENABLE_TTM
     if (Kernel->bufSyncListMutex) {
         gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, Kernel->bufSyncListMutex));
@@ -1116,58 +1147,18 @@ gckKERNEL_Destroy(gckKERNEL Kernel)
     }
 #endif
 
-    /* Destroy the database. */
     do {
         if (Kernel->db == gcvNULL)
             break;
 
         if (Kernel->db->refcnt) {
-            gctINT32 oldValue;
-
-            gcmkVERIFY_OK(gckOS_AtomDecrement(Kernel->os, Kernel->db->refcnt, &oldValue));
+            gcmkVERIFY_OK(gckOS_AtomGet(Kernel->os, Kernel->db->refcnt, &db_refcnt));
 
             /* Other kernel is sharing this db */
-            if (oldValue > 1)
+            if (db_refcnt >= 1)
                 break;
 
             gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->db->refcnt));
-        }
-
-        for (i = 0; i < gcmCOUNTOF(Kernel->db->db); ++i) {
-            if (Kernel->db->db[i] != gcvNULL) {
-                gcmkVERIFY_OK(gckKERNEL_DestroyProcessDB(Kernel,
-                                                         Kernel->db->db[i]->processID));
-            }
-        }
-
-        /* Free all databases. */
-        for (database = Kernel->db->freeDatabase;
-             database != gcvNULL;
-             database = databaseNext) {
-            databaseNext = database->next;
-
-            if (database->counterMutex) {
-                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, database->counterMutex));
-                database->counterMutex = gcvNULL;
-            }
-
-            gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, database));
-        }
-
-        if (Kernel->db->lastDatabase != gcvNULL) {
-            if (Kernel->db->lastDatabase->counterMutex) {
-                gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os,
-                                                Kernel->db->lastDatabase->counterMutex));
-                Kernel->db->lastDatabase->counterMutex = gcvNULL;
-            }
-
-            gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, Kernel->db->lastDatabase));
-        }
-
-        /* Free all database records. */
-        for (record = Kernel->db->freeRecord; record != gcvNULL; record = recordNext) {
-            recordNext = record->next;
-            gcmkVERIFY_OK(gcmkOS_SAFE_FREE(Kernel->os, record));
         }
 
         if (Kernel->db->dbMutex) {
@@ -1208,6 +1199,27 @@ gckKERNEL_Destroy(gckKERNEL Kernel)
         /* Notify stuck timer to quit. */
         Kernel->monitorTimerStop = gcvTRUE;
     } while (gcvFALSE);
+
+    if (Kernel->atomClients) {
+        /* Detsroy the client atom. */
+        gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->atomClients));
+        Kernel->atomClients = gcvNULL;
+    }
+
+    if (Kernel->resetStatus) {
+        gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->resetStatus));
+        Kernel->resetStatus = gcvNULL;
+    }
+
+    if (Kernel->atomBroCoreMask) {
+        gcmkVERIFY_OK(gckOS_AtomDestroy(Kernel->os, Kernel->atomBroCoreMask));
+        Kernel->atomBroCoreMask = gcvNULL;
+    }
+
+    if (Kernel->vidMemBlockMutex) {
+        gcmkVERIFY_OK(gckOS_DeleteMutex(Kernel->os, Kernel->vidMemBlockMutex));
+        Kernel->vidMemBlockMutex = gcvNULL;
+    }
 
         if (Kernel->parityEvent) {
             gcmkVERIFY_OK(gckEVENT_Destroy(Kernel->parityEvent));

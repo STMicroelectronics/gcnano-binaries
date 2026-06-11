@@ -1668,9 +1668,6 @@ void
 gckOS_DumpParam(void);
 
 gceSTATUS
-gc_mmuinfo_show(void);
-
-gceSTATUS
 gckOS_QueryUserClusterMasks(gckOS Os, gckHARDWARE Hardware);
 
 #ifdef __cplusplus
