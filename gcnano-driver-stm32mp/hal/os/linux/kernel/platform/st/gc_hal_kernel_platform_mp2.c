@@ -78,6 +78,13 @@
 #define str(x) #x
 #endif
 
+gceSTATUS _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args);
+gceSTATUS _SetPower( IN gcsPLATFORM * Platform, IN gctUINT32 DevIndex, IN gceCORE GPU, IN gctBOOL Enable);
+gceSTATUS _GetPower(IN gcsPLATFORM * Platform);
+gceSTATUS _PutPower(IN gcsPLATFORM * Platform);
+gceSTATUS _SetClock(IN gcsPLATFORM * Platform, IN gctUINT32 DevIndex,IN gceCORE GPU, IN gctBOOL Enable);
+gceSTATUS _Reset(IN gcsPLATFORM * Platform, IN gctUINT32 DevIndex, IN gceCORE GPU);
+
 #if gcdENABLE_FSCALE_VAL_ADJUST && defined(CONFIG_DEVFREQ_THERMAL)
 struct gpufreq_cooling_device {
         int id;
@@ -687,17 +694,17 @@ _GetPower(IN gcsPLATFORM * Platform)
         dev_err(dev, "create gpuClockScale attr failed (%d)\n", ret);
 
     if (of_find_property(dev->of_node, "#cooling-cells", NULL)) {
-        ret = of_property_read_u32(dev->of_node, "throttle,max_state", &val);
-        if (ret) {
-            dev_err(dev, "gpufreq: missing throttle max state\n");
-        } else {
-            struct thermal_cooling_device *cdev;
+        /*
+         * throttle,max_state is always 6. To avoid reworking vivante,gc.yaml
+         * and to simplify related dt files, this value is now hard-coded.
+         */
+        val = 6;
+        struct thermal_cooling_device *cdev;
 
-            cdev = device_gpu_cooling_register(dev, val);
-            if (IS_ERR(cdev)) {
-                dev_err(dev, "failed to register gpufreq cooling device\n");
-                device_gpu_cooling_unregister(cdev);
-            }
+        cdev = device_gpu_cooling_register(dev, val);
+        if (IS_ERR(cdev)) {
+            dev_err(dev, "failed to register gpufreq cooling device\n");
+            device_gpu_cooling_unregister(cdev);
         }
     }
 #endif

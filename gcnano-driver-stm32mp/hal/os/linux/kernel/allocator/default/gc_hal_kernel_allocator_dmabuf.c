@@ -71,7 +71,9 @@
 
 #define _GC_OBJ_ZONE gcvZONE_OS
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+MODULE_IMPORT_NS("DMA_BUF");
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
 MODULE_IMPORT_NS(DMA_BUF);
 #endif
 
@@ -216,7 +218,13 @@ _DmabufAttach(gckALLOCATOR Allocator, gcsATTACH_DESC_PTR Desc, PLINUX_MDL Mdl)
     if (!attachment)
         gcmkONERROR(gcvSTATUS_NOT_SUPPORTED);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+    dma_resv_lock(attachment->dmabuf->resv, NULL);
     sgt = dma_buf_map_attachment(attachment, DMA_BIDIRECTIONAL);
+    dma_resv_unlock(attachment->dmabuf->resv);
+#else
+    sgt = dma_buf_map_attachment(attachment, DMA_BIDIRECTIONAL);
+#endif
 
     if (!sgt)
         gcmkONERROR(gcvSTATUS_NOT_SUPPORTED);
@@ -284,8 +292,15 @@ OnError:
     if (acquiredMutex)
         gckOS_ReleaseMutex(os, &priv->lock);
 
-    if (sgt)
+    if (sgt) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+        dma_resv_lock(attachment->dmabuf->resv, NULL);
         dma_buf_unmap_attachment(attachment, sgt, DMA_BIDIRECTIONAL);
+        dma_resv_unlock(attachment->dmabuf->resv);
+#else
+        dma_buf_unmap_attachment(attachment, sgt, DMA_BIDIRECTIONAL);
+#endif
+    }
 
     gcmkFOOTER();
     return status;
@@ -308,7 +323,13 @@ _DmabufFree(gckALLOCATOR Allocator, PLINUX_MDL Mdl)
     gcmkONERROR(gckOS_ReleaseMutex(os, &priv->lock));
     acquiredMutex = gcvFALSE;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+    dma_resv_lock(buf_desc->dmabuf->resv, NULL);
     dma_buf_unmap_attachment(buf_desc->attachment, buf_desc->sgt, DMA_BIDIRECTIONAL);
+    dma_resv_unlock(buf_desc->dmabuf->resv);
+#else
+    dma_buf_unmap_attachment(buf_desc->attachment, buf_desc->sgt, DMA_BIDIRECTIONAL);
+#endif
 
     dma_buf_detach(buf_desc->dmabuf, buf_desc->attachment);
 

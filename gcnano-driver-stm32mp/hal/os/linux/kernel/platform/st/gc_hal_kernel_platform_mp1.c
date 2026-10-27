@@ -76,6 +76,12 @@
 #define str(x) #x
 #endif
 
+gceSTATUS _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args);
+gceSTATUS _GetPower(IN gcsPLATFORM * Platform);
+gceSTATUS _PutPower(IN gcsPLATFORM * Platform);
+gceSTATUS _SetClock(IN gcsPLATFORM * Platform, IN gctUINT32 DevIndex,IN gceCORE GPU, IN gctBOOL Enable);
+gceSTATUS _Reset(IN gcsPLATFORM * Platform, IN gctUINT32 DevIndex, IN gceCORE GPU);
+
 struct st_priv {
     /*  Reset management */
     struct reset_control *rstc;
@@ -197,6 +203,14 @@ _AdjustParam(IN gcsPLATFORM * Platform, OUT gcsMODULE_PARAMETERS *Args)
         Args->irqs[core] = irq;
         allocatorArray = allocatorArray_CMA_First;
 
+        Platform->flagBits |= gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24)
+        *Args->devices[0]->dma_mask = DMA_BIT_MASK(32);
+        Args->devices[0]->coherent_dma_mask = DMA_BIT_MASK(32);
+#else
+        *Args->devices[0]->dma_mask = DMA_32BIT_MASK;
+        Args->devices[0]->coherent_dma_mask = DMA_32BIT_MASK;
+#endif
 
     } else {
         /* Register base address */

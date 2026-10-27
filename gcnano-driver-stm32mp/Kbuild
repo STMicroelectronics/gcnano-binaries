@@ -312,6 +312,8 @@ ifeq ($(ENABLE_VM_PASSTHROUGH),1)
 EXTRA_CFLAGS += -DgcdENABLE_VM_PASSTHROUGH=1
 endif
 
+ccflags-y  += $(EXTRA_CFLAGS)
+
 obj-m = $(MODULE_NAME).o
 
 $(MODULE_NAME)-objs  = $(OBJS)

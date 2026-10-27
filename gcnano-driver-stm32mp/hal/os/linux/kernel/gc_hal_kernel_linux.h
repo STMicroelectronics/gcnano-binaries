@@ -130,6 +130,10 @@
 # define gcdVM_FLAGS (VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_RESERVED)
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+# define nth_page(a, b) ((a) + (b))
+#endif
+
 /* Protection bit when mapping memory to user sapce */
 #define gcmkPAGED_MEMROY_PROT(x) pgprot_writecombine(x)
 
